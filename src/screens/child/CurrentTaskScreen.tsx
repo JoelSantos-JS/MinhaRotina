@@ -210,6 +210,8 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
   // Local queue (supports "try later" reordering)
   const [localQueue, setLocalQueue] = useState<Task[]>([]);
   const [localIndex, setLocalIndex] = useState(0);
+  const [allDoneToday, setAllDoneToday] = useState(false);
+  const [allTasksForSummary, setAllTasksForSummary] = useState<Task[]>([]);
 
   // UI state
   const [completing, setCompleting] = useState(false);
@@ -263,8 +265,19 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
 
         const freshTasks = useRoutineStore.getState().tasks;
         if (freshTasks.length > 0) {
-          setLocalQueue([...freshTasks]);
-          setLocalIndex(0);
+          const completedIds = await taskService.getCompletedTaskIdsToday(childId, routineId);
+          const completedSet = new Set(completedIds);
+          const pending = freshTasks.filter((t) => !completedSet.has(t.id));
+
+          if (pending.length === 0) {
+            // All tasks already done today — show summary
+            setAllTasksForSummary([...freshTasks]);
+            setAllDoneToday(true);
+          } else {
+            setAllTasksForSummary([...freshTasks]);
+            setLocalQueue(pending);
+            setLocalIndex(0);
+          }
         }
       } finally {
         if (active) setFetchDone(true);
@@ -434,6 +447,47 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
     return (
       <SafeAreaView style={styles.safe}>
         <LoadingSpinner fullScreen message="Preparando sua rotina..." />
+      </SafeAreaView>
+    );
+  }
+
+  if (allDoneToday) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <LinearGradient
+          colors={[themeColor + 'CC', themeColor + '44', '#FFFFFD']}
+          style={styles.gradient}
+        >
+          <ScrollView
+            contentContainerStyle={styles.allDoneContainer}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={styles.allDoneEmoji}>🏆</Text>
+            <Text style={styles.allDoneTitleText}>Tudo feito hoje!</Text>
+            <Text style={styles.allDoneSubText}>
+              Você já completou toda a rotina hoje. Incrível! ⭐
+            </Text>
+
+            <View style={styles.allDoneList}>
+              {allTasksForSummary.map((task) => (
+                <View key={task.id} style={styles.allDoneRow}>
+                  <Text style={styles.allDoneTaskEmoji}>{task.icon_emoji}</Text>
+                  <Text style={styles.allDoneTaskName} numberOfLines={1}>
+                    {task.name}
+                  </Text>
+                  <Text style={styles.allDoneCheck}>✅</Text>
+                </View>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              style={[styles.goBackBtn, { backgroundColor: themeColor }]}
+            >
+              <Text style={styles.goBackText}>Voltar</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </LinearGradient>
       </SafeAreaView>
     );
   }
@@ -1016,5 +1070,50 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   goBackText: { ...Typography.labelMedium, color: '#fff' },
+
+  // ── All done today ──
+  allDoneContainer: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 28,
+    paddingBottom: 48,
+  },
+  allDoneEmoji: { fontSize: 80, marginBottom: 12 },
+  allDoneTitleText: {
+    ...Typography.headlineLarge,
+    fontSize: 30,
+    color: BlueyColors.textPrimary,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  allDoneSubText: {
+    ...Typography.bodyLarge,
+    color: BlueyColors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 26,
+    marginBottom: 28,
+  },
+  allDoneList: {
+    width: '100%',
+    gap: 10,
+    marginBottom: 32,
+  },
+  allDoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    gap: 12,
+  },
+  allDoneTaskEmoji: { fontSize: 28 },
+  allDoneTaskName: {
+    ...Typography.titleMedium,
+    color: BlueyColors.textPrimary,
+    flex: 1,
+  },
+  allDoneCheck: { fontSize: 22 },
 });
 

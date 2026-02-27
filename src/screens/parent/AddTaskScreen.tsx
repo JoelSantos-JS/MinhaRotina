@@ -21,21 +21,34 @@ import { TaskHelpModal } from '../../components/modals/TaskHelpModal';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { taskService } from '../../services/routine.service';
 import { useRoutineStore } from '../../stores/routineStore';
+import { useChildStore } from '../../stores/childStore';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { TASK_EMOJIS, SENSORY_CATEGORIES } from '../../config/constants';
 import { detectSensoryCategory } from '../../utils/sensoryDetection';
-import type { Task } from '../../types/models';
+import { validateTaskForm, formatTimePreset, TIME_PRESETS, TASK_FORM_ERROR_MESSAGES } from '../../utils/taskFormUtils';
+import type { RoutinesConfig, Task } from '../../types/models';
 import type { ParentScreenProps } from '../../types/navigation';
 
 export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigation, route }) => {
-  const { routineId } = route.params;
-  const { tasks, isLoading, fetchTasks, addTask, updateTask, removeTask } = useRoutineStore();
+  const { routineId, childId } = route.params;
+  const { routines, tasks, isLoading, fetchTasks, addTask, updateTask, removeTask } = useRoutineStore();
+  const { children } = useChildStore();
+  const childName = children.find((c) => c.id === childId)?.name ?? '';
+  const currentRoutineType = routines.find((r) => r.id === routineId)?.type;
+
+  const defaultRoutines = (): RoutinesConfig => ({
+    morning: currentRoutineType === 'morning',
+    afternoon: currentRoutineType === 'afternoon',
+    night: currentRoutineType === 'night',
+  });
 
   const [showForm, setShowForm] = useState(false);
+  const [iconTab, setIconTab] = useState<'emoji' | 'photo'>('emoji');
+  const [isDirty, setIsDirty] = useState(false);
   const [taskName, setTaskName] = useState('');
   const [selectedEmoji, setSelectedEmoji] = useState<string>(TASK_EMOJIS[0]);
-  const [estimatedMinutes, setEstimatedMinutes] = useState('5');
+  const [estimatedMinutes, setEstimatedMinutes] = useState<number>(5);
   const [hasSensory, setHasSensory] = useState(false);
   const [sensoryCategory, setSensoryCategory] = useState<Task['sensory_category']>(null);
   const [detectedCategory, setDetectedCategory] = useState<SensoryAlertCategory | null>(null);
@@ -45,6 +58,7 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
   const [description, setDescription] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [selectedRoutines, setSelectedRoutines] = useState<RoutinesConfig>({ morning: false, afternoon: false, night: false });
   const [saving, setSaving] = useState(false);
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -53,6 +67,23 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
   useEffect(() => {
     fetchTasks(routineId);
   }, [routineId]);
+
+  // Intercepta o botão Voltar quando há alterações não salvas
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      if (!isDirty || !showForm) return;
+      e.preventDefault();
+      Alert.alert(
+        'Sair sem salvar?',
+        'Voc\u00EA tem uma tarefa em edi\u00E7\u00E3o. Deseja descartar as altera\u00E7\u00F5es?',
+        [
+          { text: 'Continuar editando', style: 'cancel' },
+          { text: 'Descartar', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
+        ]
+      );
+    });
+    return unsubscribe;
+  }, [navigation, isDirty, showForm]);
 
   // Auto-detect sensory keywords as the user types
   useEffect(() => {
@@ -85,6 +116,7 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
 
   const handleSensoryToggle = (val: boolean) => {
     setHasSensory(val);
+    setIsDirty(true);
     if (!val) {
       setSensoryCategory(null);
       setAlertVisible(false);
@@ -103,19 +135,22 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
     setEditingTask(task);
     setTaskName(task.name);
     setSelectedEmoji(task.icon_emoji);
-    setEstimatedMinutes(String(task.estimated_minutes));
+    setEstimatedMinutes(task.estimated_minutes);
     setHasSensory(task.has_sensory_issues);
     setSensoryCategory(task.sensory_category ?? null);
     setPhotoUri(task.photo_url ?? null);
     setDescription(task.description ?? '');
     setVideoUrl(task.video_url ?? '');
+    setIconTab(task.photo_url ? 'photo' : 'emoji');
+    setSelectedRoutines(task.routines_config ?? defaultRoutines());
+    setIsDirty(false);
     setShowForm(true);
   };
 
   const pickPhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permissão necessária', 'Permita o acesso à galeria nas configurações.');
+      Alert.alert('Permiss\u00E3o necess\u00E1ria', 'Permita o acesso \u00E0 galeria nas configura\u00E7\u00F5es.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -126,11 +161,35 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
     });
     if (!result.canceled) {
       setPhotoUri(result.assets[0].uri);
+      setIsDirty(true);
+    }
+  };
+
+  const pickPhotoFromCamera = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permiss\u00E3o necess\u00E1ria', 'Permita o acesso \u00E0 c\u00E2mera nas configura\u00E7\u00F5es.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.65,
+    });
+    if (!result.canceled) {
+      setPhotoUri(result.assets[0].uri);
+      setIsDirty(true);
     }
   };
 
   const handleAddTask = async () => {
-    if (!taskName.trim()) { Alert.alert('Atenção', 'Digite o nome da tarefa.'); return; }
+    const formError = validateTaskForm({ taskName, estimatedMinutes });
+    if (formError) { Alert.alert('Aten\u00E7\u00E3o', TASK_FORM_ERROR_MESSAGES[formError]); return; }
+
+    if (!Object.values(selectedRoutines).some((v) => v)) {
+      Alert.alert('Atenção', 'Selecione pelo menos uma rotina (Manhã, Tarde ou Noite).');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -139,12 +198,13 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
         const updated = await taskService.updateTask(editingTask.id, {
           name: taskName.trim(),
           iconEmoji: selectedEmoji,
-          estimatedMinutes: parseInt(estimatedMinutes, 10) || 5,
+          estimatedMinutes,
           hasSensoryIssues: hasSensory,
           sensoryCategory: hasSensory ? sensoryCategory : null,
           photoLocalUri: photoChanged ? (photoUri ?? null) : undefined,
           description: description.trim() || null,
           videoLocalUri: undefined, // video_url is set directly below
+          routinesConfig: selectedRoutines,
         });
         // Save video URL separately (it's a URL, not a file upload)
         if (videoUrl.trim() !== (editingTask.video_url ?? '')) {
@@ -160,11 +220,12 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
           selectedEmoji,
           tasks.length,
           {
-            estimatedMinutes: parseInt(estimatedMinutes, 10) || 5,
+            estimatedMinutes,
             hasSensoryIssues: hasSensory,
             sensoryCategory: hasSensory ? sensoryCategory : null,
             photoLocalUri: photoUri ?? undefined,
             description: description.trim() || undefined,
+            routinesConfig: selectedRoutines,
           }
         );
         // Save video URL if provided
@@ -178,7 +239,14 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
       setShowForm(false);
       resetForm();
     } catch (err: any) {
-      Alert.alert('Erro', err.message);
+      const msg: string = err?.message ?? 'Erro desconhecido';
+      const isStorageError = msg.includes('storage') || msg.includes('bucket') || msg.includes('upload') || msg.includes('row-level') || msg.includes('policy');
+      Alert.alert(
+        isStorageError ? 'Erro ao enviar foto' : 'Erro',
+        isStorageError
+          ? `A tarefa foi criada, mas a foto não pôde ser salva.\n\nVerifique se o bucket "task-photos" existe e é público no Supabase.\n\nDetalhe: ${msg}`
+          : msg
+      );
     } finally {
       setSaving(false);
     }
@@ -187,7 +255,7 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
   const resetForm = () => {
     setTaskName('');
     setSelectedEmoji(TASK_EMOJIS[0]);
-    setEstimatedMinutes('5');
+    setEstimatedMinutes(5);
     setHasSensory(false);
     setSensoryCategory(null);
     setDetectedCategory(null);
@@ -196,6 +264,9 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
     setDescription('');
     setVideoUrl('');
     setEditingTask(null);
+    setSelectedRoutines({ morning: false, afternoon: false, night: false });
+    setIconTab('emoji');
+    setIsDirty(false);
   };
 
   const handleDeleteTask = (taskId: string, name: string) => {
@@ -217,9 +288,14 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
       <LinearGradient colors={BlueyGradients.blueVertical} style={styles.gradient}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={styles.backText}>← Voltar</Text>
+            <Text style={styles.backText}>{'← Voltar'}</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Tarefas da Rotina</Text>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>Tarefas da Rotina</Text>
+            {childName ? (
+              <Text style={styles.headerSubtitle}>{'Para ' + childName}</Text>
+            ) : null}
+          </View>
           <View style={{ width: 60 }} />
         </View>
 
@@ -265,47 +341,75 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
                 <View style={styles.form}>
                   <Text style={styles.formTitle}>{editingTask ? 'Editar Tarefa' : 'Nova Tarefa'}</Text>
 
-                  {/* Emoji picker */}
-                  <Text style={styles.fieldLabel}>Ícone</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.emojiScroll}>
-                    {TASK_EMOJIS.map((emoji, index) => (
-                      <TouchableOpacity
-                        key={`emoji-${index}`}
-                        onPress={() => setSelectedEmoji(emoji)}
-                        style={[
-                          styles.emojiOption,
-                          selectedEmoji === emoji && styles.emojiOptionSelected,
-                        ]}
-                      >
-                        <Text style={styles.emojiText}>{emoji}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-
-                  {/* Photo picker */}
-                  <Text style={styles.fieldLabel}>📷 Foto da Tarefa <Text style={styles.optionalLabel}>(opcional)</Text></Text>
-                  <View style={styles.photoRow}>
-                    <TouchableOpacity onPress={pickPhoto} style={styles.photoPreviewWrap} activeOpacity={0.8}>
-                      {photoUri ? (
-                        <Image source={{ uri: photoUri }} style={styles.photoPreview} resizeMode="cover" />
-                      ) : (
-                        <View style={styles.photoPlaceholder}>
-                          <Text style={styles.photoPlaceholderEmoji}>📷</Text>
-                          <Text style={styles.photoPlaceholderText}>Toque para{'\n'}escolher</Text>
-                        </View>
-                      )}
+                  {/* Icon selector — tab toggle */}
+                  <Text style={styles.fieldLabel}>{'\uD83C\uDFA8 \u00CDcone da Tarefa'}</Text>
+                  <View style={styles.iconTabRow}>
+                    <TouchableOpacity
+                      style={[styles.iconTab, iconTab === 'emoji' && styles.iconTabActive]}
+                      onPress={() => setIconTab('emoji')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.iconTabText, iconTab === 'emoji' && styles.iconTabTextActive]}>
+                        {'😊 Emoji'}
+                      </Text>
                     </TouchableOpacity>
-                    <View style={styles.photoActions}>
-                      <TouchableOpacity onPress={pickPhoto} style={styles.photoBtnPrimary} activeOpacity={0.8}>
-                        <Text style={styles.photoBtnPrimaryText}>Escolher Foto</Text>
-                      </TouchableOpacity>
-                      {photoUri && (
-                        <TouchableOpacity onPress={() => setPhotoUri(null)} style={styles.photoBtnRemove} activeOpacity={0.8}>
-                          <Text style={styles.photoBtnRemoveText}>Remover ✕</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
+                    <TouchableOpacity
+                      style={[styles.iconTab, iconTab === 'photo' && styles.iconTabActive]}
+                      onPress={() => setIconTab('photo')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.iconTabText, iconTab === 'photo' && styles.iconTabTextActive]}>
+                        {'📷 Foto'}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
+
+                  {iconTab === 'emoji' && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.emojiScroll}>
+                      {TASK_EMOJIS.map((emoji, index) => (
+                        <TouchableOpacity
+                          key={`emoji-${index}`}
+                          onPress={() => { setSelectedEmoji(emoji); setIsDirty(true); }}
+                          style={[
+                            styles.emojiOption,
+                            selectedEmoji === emoji && styles.emojiOptionSelected,
+                          ]}
+                        >
+                          <Text style={styles.emojiText}>{emoji}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  )}
+
+                  {iconTab === 'photo' && (
+                    <View style={styles.photoSection}>
+                      {/* Preview */}
+                      <View style={styles.photoPreviewWrap}>
+                        {photoUri ? (
+                          <Image source={{ uri: photoUri }} style={styles.photoPreview} resizeMode="cover" />
+                        ) : (
+                          <View style={styles.photoPlaceholder}>
+                            <Text style={styles.photoPlaceholderEmoji}>{'📷'}</Text>
+                            <Text style={styles.photoPlaceholderText}>{'Sem foto\nescolhida'}</Text>
+                          </View>
+                        )}
+                      </View>
+                      {/* Buttons */}
+                      <View style={styles.photoActions}>
+                        <TouchableOpacity onPress={pickPhotoFromCamera} style={styles.photoBtnPrimary} activeOpacity={0.8}>
+                          <Text style={styles.photoBtnPrimaryText}>{'📸 C\u00E2mera'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={pickPhoto} style={styles.photoBtnSecondary} activeOpacity={0.8}>
+                          <Text style={styles.photoBtnSecondaryText}>{'🖼\uFE0F Galeria'}</Text>
+                        </TouchableOpacity>
+                        {photoUri && (
+                          <TouchableOpacity onPress={() => { setPhotoUri(null); setIsDirty(true); }} style={styles.photoBtnRemove} activeOpacity={0.8}>
+                            <Text style={styles.photoBtnRemoveText}>{'Remover \u2715'}</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  )}
 
                   {/* Task name + inline alert */}
                   <Text style={styles.fieldLabel}>Nome da tarefa</Text>
@@ -330,14 +434,55 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
                     />
                   )}
 
-                  <Text style={styles.fieldLabel}>Tempo estimado (minutos)</Text>
-                  <TextInput
-                    value={estimatedMinutes}
-                    onChangeText={setEstimatedMinutes}
-                    keyboardType="number-pad"
-                    style={[styles.input, styles.inputSmall]}
-                    maxLength={2}
-                  />
+                  <Text style={styles.fieldLabel}>{'⏱️ Tempo estimado'}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.timeScroll}>
+                    {TIME_PRESETS.map((mins) => (
+                      <TouchableOpacity
+                        key={mins}
+                        onPress={() => { setEstimatedMinutes(mins); setIsDirty(true); }}
+                        style={[styles.timeOption, estimatedMinutes === mins && styles.timeOptionSelected]}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={[styles.timeOptionText, estimatedMinutes === mins && styles.timeOptionTextSelected]}>
+                          {formatTimePreset(mins)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  {/* Routine checkboxes */}
+                  <Text style={styles.fieldLabel}>📅 Aparece nas rotinas</Text>
+                  <View style={styles.routineCheckboxes}>
+                    {([
+                      { key: 'morning' as const, label: 'Manhã', emoji: '🌅', color: '#EDCC6F' },
+                      { key: 'afternoon' as const, label: 'Tarde', emoji: '☀️', color: '#88CAFC' },
+                      { key: 'night' as const, label: 'Noite', emoji: '🌙', color: '#B39DDB' },
+                    ]).map((rt) => {
+                      const checked = selectedRoutines[rt.key];
+                      return (
+                        <TouchableOpacity
+                          key={rt.key}
+                          onPress={() => {
+                            const next = { ...selectedRoutines, [rt.key]: !checked };
+                            if (!Object.values(next).some((v) => v)) return;
+                            setSelectedRoutines(next);
+                            setIsDirty(true);
+                          }}
+                          style={[
+                            styles.routineCheckbox,
+                            checked && { borderColor: rt.color, backgroundColor: rt.color + '26' },
+                          ]}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.routineCheckboxEmoji}>{rt.emoji}</Text>
+                          <Text style={styles.routineCheckboxLabel}>{rt.label}</Text>
+                          <Text style={[styles.routineCheckboxTick, checked && { color: rt.color }]}>
+                            {checked ? '✓' : ' '}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
 
                   <View style={styles.sensoryRow}>
                     <View style={styles.sensoryLeft}>
@@ -433,7 +578,10 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
               ) : (
                 <BlueyButton
                   title="+ Adicionar Tarefa"
-                  onPress={() => setShowForm(true)}
+                  onPress={() => {
+                    setSelectedRoutines(defaultRoutines());
+                    setShowForm(true);
+                  }}
                   type="secondary"
                   style={styles.addBtn}
                 />
@@ -468,7 +616,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   backText: { ...Typography.titleMedium, color: BlueyColors.blueyDark },
+  headerCenter: { alignItems: 'center' },
   headerTitle: { ...Typography.titleLarge, color: BlueyColors.textPrimary },
+  headerSubtitle: { ...Typography.bodySmall, color: BlueyColors.textSecondary, marginTop: 2 },
   content: { paddingHorizontal: 20, paddingBottom: 40 },
   emptyBox: {
     alignItems: 'center',
@@ -604,6 +754,76 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   photoBtnRemoveText: { ...Typography.labelMedium, color: '#E57373' },
+  // ── Icon tab toggle ──
+  iconTabRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  iconTab: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: BlueyColors.borderMedium,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+  },
+  iconTabActive: {
+    borderColor: BlueyColors.blueyMain,
+    backgroundColor: BlueyColors.backgroundBlue,
+  },
+  iconTabText: {
+    ...Typography.labelMedium,
+    color: BlueyColors.textSecondary,
+  },
+  iconTabTextActive: {
+    color: BlueyColors.blueyDark,
+  },
+  // ── Photo section (inside tab) ──
+  photoSection: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+    marginBottom: 16,
+  },
+  photoBtnSecondary: {
+    borderWidth: 2,
+    borderColor: BlueyColors.blueyMain,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+  },
+  photoBtnSecondaryText: {
+    ...Typography.labelMedium,
+    color: BlueyColors.blueyDark,
+  },
+  // ── Time presets ──
+  timeScroll: { marginBottom: 16 },
+  timeOption: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: BlueyColors.borderLight,
+    marginRight: 8,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeOptionSelected: {
+    borderColor: BlueyColors.blueyMain,
+    borderWidth: 3,
+    backgroundColor: BlueyColors.backgroundBlue,
+  },
+  timeOptionText: {
+    ...Typography.labelMedium,
+    color: BlueyColors.textSecondary,
+  },
+  timeOptionTextSelected: {
+    color: BlueyColors.blueyDark,
+  },
   inputMultiline: {
     height: 88,
     paddingTop: 12,
@@ -620,4 +840,22 @@ const styles = StyleSheet.create({
     borderColor: BlueyColors.blueyMain,
   },
   videoTestBtnText: { ...Typography.labelSmall, color: BlueyColors.blueyDark },
+  // ── Routine checkboxes ──
+  routineCheckboxes: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  routineCheckbox: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: BlueyColors.borderLight,
+    backgroundColor: '#fff',
+  },
+  routineCheckboxEmoji: { fontSize: 22, marginBottom: 2 },
+  routineCheckboxLabel: { ...Typography.labelSmall, color: BlueyColors.textPrimary, marginBottom: 2 },
+  routineCheckboxTick: { ...Typography.titleMedium, color: BlueyColors.borderLight },
 });

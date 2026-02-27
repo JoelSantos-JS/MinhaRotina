@@ -5,6 +5,11 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,6 +21,7 @@ import { useChildStore } from '../../stores/childStore';
 import { useRoutineStore } from '../../stores/routineStore';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
+import { formatDateLabel, formatTime } from '../../utils/dateUtils';
 import type { TaskProgress } from '../../types/models';
 
 type SkipRecord = {
@@ -25,23 +31,14 @@ type SkipRecord = {
   task_id: string;
   reason: 'skip_now' | 'try_later';
   skipped_at: string;
+  note?: string | null;
   tasks: { name: string; icon_emoji: string } | null;
   routines: { name: string } | null;
 };
 
-function formatDateLabel(dateStr: string) {
-  const today = new Date().toISOString().split('T')[0];
-  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-  if (dateStr === today) return 'Hoje';
-  if (dateStr === yesterday) return 'Ontem';
-  const d = new Date(dateStr + 'T12:00:00');
-  return d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'short' });
-}
-
-function formatTime(dateStr: string) {
-  const d = new Date(dateStr);
-  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-}
+type NoteTarget =
+  | { kind: 'progress'; id: string; current: string | null | undefined }
+  | { kind: 'skip'; id: string; current: string | null | undefined };
 
 export const DiarioScreen: React.FC = () => {
   const parent = useAuthStore((s) => s.parent);
@@ -54,6 +51,11 @@ export const DiarioScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedDays, setSelectedDays] = useState<7 | 14 | 30>(7);
   const [skipsExpanded, setSkipsExpanded] = useState(true);
+
+  // Note modal state
+  const [noteTarget, setNoteTarget] = useState<NoteTarget | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -86,7 +88,7 @@ export const DiarioScreen: React.FC = () => {
           allRecords.push({ ...r, childName: child.name, childEmoji: child.icon_emoji });
         }
         for (const s of skips) {
-          allSkipRecords.push({ ...s, childName: child.name, childEmoji: child.icon_emoji });
+          allSkipRecords.push({ ...s as SkipRecord, childName: child.name, childEmoji: child.icon_emoji });
         }
       }
 
@@ -109,6 +111,39 @@ export const DiarioScreen: React.FC = () => {
 
   const getRoutineName = (routineId: string) =>
     routines.find((r) => r.id === routineId)?.name ?? 'Rotina';
+
+  const openNote = (target: NoteTarget) => {
+    setNoteTarget(target);
+    setNoteText(target.current ?? '');
+  };
+
+  const closeNote = () => {
+    setNoteTarget(null);
+    setNoteText('');
+  };
+
+  const handleSaveNote = async () => {
+    if (!noteTarget) return;
+    setSavingNote(true);
+    try {
+      if (noteTarget.kind === 'progress') {
+        await progressService.saveProgressNote(noteTarget.id, noteText);
+        setAllProgress((prev) =>
+          prev.map((r) => (r.id === noteTarget.id ? { ...r, note: noteText.trim() || null } : r))
+        );
+      } else {
+        await progressService.saveSkipNote(noteTarget.id, noteText);
+        setAllSkips((prev) =>
+          prev.map((s) => (s.id === noteTarget.id ? { ...s, note: noteText.trim() || null } : s))
+        );
+      }
+      closeNote();
+    } catch (err: any) {
+      Alert.alert('Erro', err.message || 'Não foi possível salvar a nota.');
+    } finally {
+      setSavingNote(false);
+    }
+  };
 
   const filtered =
     selectedChildId === 'all'
@@ -244,16 +279,30 @@ export const DiarioScreen: React.FC = () => {
                   <View key={date} style={styles.daySection}>
                     <Text style={styles.dayTitle}>{formatDateLabel(date)}</Text>
                     {groups[date].map((record) => (
-                      <View key={record.id} style={styles.recordRow}>
-                        <Text style={styles.recordEmoji}>{record.childEmoji}</Text>
-                        <View style={styles.recordInfo}>
-                          <Text style={styles.recordChild}>{record.childName}</Text>
-                          <Text style={styles.recordRoutine}>{getRoutineName(record.routine_id)}</Text>
+                      <View key={record.id} style={styles.recordBlock}>
+                        <View style={styles.recordRow}>
+                          <Text style={styles.recordEmoji}>{record.childEmoji}</Text>
+                          <View style={styles.recordInfo}>
+                            <Text style={styles.recordChild}>{record.childName}</Text>
+                            <Text style={styles.recordRoutine}>{getRoutineName(record.routine_id)}</Text>
+                          </View>
+                          <View style={styles.recordRight}>
+                            <Text style={styles.recordCheck}>✅</Text>
+                            <Text style={styles.recordTime}>{formatTime(record.completed_at)}</Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => openNote({ kind: 'progress', id: record.id, current: record.note })}
+                            style={[styles.noteBtn, record.note ? styles.noteBtnFilled : null]}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.noteBtnText}>💬</Text>
+                          </TouchableOpacity>
                         </View>
-                        <View style={styles.recordRight}>
-                          <Text style={styles.recordCheck}>✅</Text>
-                          <Text style={styles.recordTime}>{formatTime(record.completed_at)}</Text>
-                        </View>
+                        {record.note ? (
+                          <Text style={styles.notePreview} numberOfLines={2}>
+                            {record.note}
+                          </Text>
+                        ) : null}
                       </View>
                     ))}
                   </View>
@@ -281,29 +330,43 @@ export const DiarioScreen: React.FC = () => {
                         Tarefas que a criança não conseguiu fazer — úteis para conversar com especialistas.
                       </Text>
                       {filteredSkips.map((skip) => (
-                        <View key={skip.id} style={styles.skipRow}>
-                          <Text style={styles.skipEmoji}>
-                            {skip.tasks?.icon_emoji ?? '❓'}
-                          </Text>
-                          <View style={styles.skipInfo}>
-                            <Text style={styles.skipTaskName}>
-                              {skip.tasks?.name ?? 'Tarefa removida'}
+                        <View key={skip.id} style={styles.skipBlock}>
+                          <View style={styles.skipRow}>
+                            <Text style={styles.skipEmoji}>
+                              {skip.tasks?.icon_emoji ?? '❓'}
                             </Text>
-                            <Text style={styles.skipRoutine}>
-                              {skip.childName} · {skip.routines?.name ?? getRoutineName(skip.routine_id)}
-                            </Text>
-                          </View>
-                          <View style={styles.skipRight}>
-                            <View style={[
-                              styles.skipReasonBadge,
-                              skip.reason === 'skip_now' ? styles.skipReasonRed : styles.skipReasonOrange,
-                            ]}>
-                              <Text style={styles.skipReasonText}>
-                                {skip.reason === 'skip_now' ? '⏭️ Pulou' : '🔄 Tentou depois'}
+                            <View style={styles.skipInfo}>
+                              <Text style={styles.skipTaskName}>
+                                {skip.tasks?.name ?? 'Tarefa removida'}
+                              </Text>
+                              <Text style={styles.skipRoutine}>
+                                {skip.childName} · {skip.routines?.name ?? getRoutineName(skip.routine_id)}
                               </Text>
                             </View>
-                            <Text style={styles.skipTime}>{formatTime(skip.skipped_at)}</Text>
+                            <View style={styles.skipRight}>
+                              <View style={[
+                                styles.skipReasonBadge,
+                                skip.reason === 'skip_now' ? styles.skipReasonRed : styles.skipReasonOrange,
+                              ]}>
+                                <Text style={styles.skipReasonText}>
+                                  {skip.reason === 'skip_now' ? '⏭️ Pulou' : '🔄 Tentou depois'}
+                                </Text>
+                              </View>
+                              <Text style={styles.skipTime}>{formatTime(skip.skipped_at)}</Text>
+                            </View>
+                            <TouchableOpacity
+                              onPress={() => openNote({ kind: 'skip', id: skip.id, current: skip.note })}
+                              style={[styles.noteBtn, skip.note ? styles.noteBtnFilled : null]}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.noteBtnText}>💬</Text>
+                            </TouchableOpacity>
                           </View>
+                          {skip.note ? (
+                            <Text style={styles.notePreview} numberOfLines={2}>
+                              {skip.note}
+                            </Text>
+                          ) : null}
                         </View>
                       ))}
                     </>
@@ -314,6 +377,51 @@ export const DiarioScreen: React.FC = () => {
           )}
         </ScrollView>
       </LinearGradient>
+
+      {/* ── Note modal ── */}
+      <Modal
+        visible={noteTarget !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={closeNote}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={closeNote} />
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>💬 Anotação do pai/mãe</Text>
+            <Text style={styles.modalHint}>
+              Registre contexto extra sobre essa atividade — útil para compartilhar com especialistas.
+            </Text>
+            <TextInput
+              value={noteText}
+              onChangeText={setNoteText}
+              placeholder="Ex: Estava agitado hoje, demorou 15 min..."
+              placeholderTextColor={BlueyColors.textPlaceholder}
+              multiline
+              numberOfLines={4}
+              style={styles.modalInput}
+              autoFocus
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity onPress={closeNote} style={styles.modalCancelBtn} activeOpacity={0.7}>
+                <Text style={styles.modalCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSaveNote}
+                style={[styles.modalSaveBtn, savingNote && { opacity: 0.6 }]}
+                activeOpacity={0.7}
+                disabled={savingNote}
+              >
+                <Text style={styles.modalSaveText}>{savingNote ? 'Salvando...' : 'Salvar'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -440,12 +548,14 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     textTransform: 'capitalize',
   },
+  recordBlock: {
+    borderTopWidth: 1,
+    borderTopColor: BlueyColors.borderLight,
+  },
   recordRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: BlueyColors.borderLight,
     gap: 10,
   },
   recordEmoji: { fontSize: 28 },
@@ -455,6 +565,35 @@ const styles = StyleSheet.create({
   recordRight: { alignItems: 'flex-end', gap: 2 },
   recordCheck: { fontSize: 18 },
   recordTime: { ...Typography.bodySmall, color: BlueyColors.textSecondary },
+  noteBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: BlueyColors.backgroundBlue,
+    borderWidth: 1.5,
+    borderColor: BlueyColors.borderLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noteBtnFilled: {
+    backgroundColor: '#FFF9C4',
+    borderColor: '#F9A825',
+  },
+  noteBtnText: { fontSize: 16 },
+  notePreview: {
+    ...Typography.bodySmall,
+    color: BlueyColors.textSecondary,
+    fontStyle: 'italic',
+    marginBottom: 8,
+    marginLeft: 38,
+    marginRight: 44,
+    backgroundColor: '#FFFDE7',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#F9A825',
+  },
   // ── Skips section ──
   skipsSection: {
     backgroundColor: '#fff',
@@ -497,12 +636,14 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontStyle: 'italic',
   },
+  skipBlock: {
+    borderTopWidth: 1,
+    borderTopColor: '#FFCDD2',
+  },
   skipRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#FFCDD2',
     gap: 10,
   },
   skipEmoji: { fontSize: 26 },
@@ -523,4 +664,78 @@ const styles = StyleSheet.create({
     fontSize: 10,
   },
   skipTime: { ...Typography.bodySmall, color: BlueyColors.textSecondary },
+  // ── Note modal ──
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  modalSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: BlueyColors.borderMedium,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    ...Typography.titleLarge,
+    color: BlueyColors.textPrimary,
+    marginBottom: 6,
+  },
+  modalHint: {
+    ...Typography.bodySmall,
+    color: BlueyColors.textSecondary,
+    marginBottom: 16,
+    fontStyle: 'italic',
+  },
+  modalInput: {
+    borderWidth: 2,
+    borderColor: BlueyColors.borderMedium,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    ...Typography.bodyMedium,
+    color: BlueyColors.textPrimary,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    marginBottom: 16,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: BlueyColors.borderMedium,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    ...Typography.titleMedium,
+    color: BlueyColors.textSecondary,
+  },
+  modalSaveBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: BlueyColors.blueyMain,
+    alignItems: 'center',
+  },
+  modalSaveText: {
+    ...Typography.titleMedium,
+    color: '#fff',
+  },
 });

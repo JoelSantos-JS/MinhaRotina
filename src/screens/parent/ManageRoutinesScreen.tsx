@@ -121,12 +121,10 @@ export const ManageRoutinesScreen: React.FC<ParentScreenProps<'ManageRoutines'>>
                   const typeInfo = getTypeInfo(routine.type);
                   return (
                     <View key={routine.id} style={styles.routineCard}>
-                      <View style={styles.routineLeft}>
-                        <Text style={styles.routineEmoji}>{typeInfo.emoji}</Text>
-                        <View>
-                          <Text style={styles.routineName}>{routine.name}</Text>
-                          <Text style={styles.routineType}>{typeInfo.label}</Text>
-                        </View>
+                      <Text style={styles.routineEmoji}>{typeInfo.emoji}</Text>
+                      <View style={styles.routineInfo}>
+                        <Text style={styles.routineName} numberOfLines={1}>{routine.name}</Text>
+                        <Text style={styles.routineType}>{typeInfo.label}</Text>
                       </View>
                       <View style={styles.routineActions}>
                         <TouchableOpacity
@@ -137,23 +135,26 @@ export const ManageRoutinesScreen: React.FC<ParentScreenProps<'ManageRoutines'>>
                             })
                           }
                           style={styles.actionBtn}
+                          activeOpacity={0.7}
                         >
                           <Text style={styles.actionBtnText}>✏️</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           onPress={() => handleToggleRoutine(routine)}
                           style={[
-                            styles.toggleBtn,
+                            styles.actionBtn,
                             routine.is_active ? styles.toggleActive : styles.toggleInactive,
                           ]}
+                          activeOpacity={0.7}
                         >
-                          <Text style={styles.toggleText}>
+                          <Text style={styles.actionBtnText}>
                             {routine.is_active ? '✅' : '⏸️'}
                           </Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           onPress={() => handleDeleteRoutine(routine)}
-                          style={styles.actionBtn}
+                          style={[styles.actionBtn, styles.deleteBtn]}
+                          activeOpacity={0.7}
                         >
                           <Text style={styles.actionBtnText}>🗑️</Text>
                         </TouchableOpacity>
@@ -176,7 +177,7 @@ export const ManageRoutinesScreen: React.FC<ParentScreenProps<'ManageRoutines'>>
                     autoFocus
                   />
 
-                  <View style={styles.typeRow}>
+                  <View style={styles.typeGrid}>
                     {ROUTINE_TYPES.map((rt) => (
                       <TouchableOpacity
                         key={rt.value}
@@ -185,9 +186,12 @@ export const ManageRoutinesScreen: React.FC<ParentScreenProps<'ManageRoutines'>>
                           styles.typeOption,
                           selectedType === rt.value && styles.typeOptionSelected,
                         ]}
+                        activeOpacity={0.8}
                       >
                         <Text style={styles.typeOptionEmoji}>{rt.emoji}</Text>
-                        <Text style={styles.typeOptionLabel}>{rt.label}</Text>
+                        <Text style={styles.typeOptionLabel} numberOfLines={1} adjustsFontSizeToFit>
+                          {rt.label}
+                        </Text>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -259,20 +263,30 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 2,
     borderColor: BlueyColors.borderMedium,
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     marginBottom: 12,
+    gap: 10,
   },
-  routineLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  routineEmoji: { fontSize: 32 },
+  routineEmoji: { fontSize: 30, width: 38, textAlign: 'center' },
+  routineInfo: { flex: 1, minWidth: 0 },
   routineName: { ...Typography.titleMedium, color: BlueyColors.textPrimary },
-  routineType: { ...Typography.bodySmall, color: BlueyColors.textSecondary },
-  routineActions: { flexDirection: 'row', gap: 8 },
-  actionBtn: { padding: 6 },
-  actionBtnText: { fontSize: 20 },
-  toggleBtn: { borderRadius: 10, padding: 6 },
-  toggleActive: { backgroundColor: '#E8F5E9' },
-  toggleInactive: { backgroundColor: '#FFF3E0' },
-  toggleText: { fontSize: 18 },
+  routineType: { ...Typography.bodySmall, color: BlueyColors.textSecondary, marginTop: 2 },
+  routineActions: { flexDirection: 'row', gap: 6 },
+  actionBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: BlueyColors.backgroundBlue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: BlueyColors.borderLight,
+  },
+  actionBtnText: { fontSize: 18 },
+  toggleActive: { backgroundColor: '#E8F5E9', borderColor: '#A5D6A7' },
+  toggleInactive: { backgroundColor: '#FFF3E0', borderColor: '#FFCC80' },
+  deleteBtn: { backgroundColor: '#FFF5F5', borderColor: '#FFCDD2' },
   addBtn: { marginTop: 8 },
   createForm: {
     backgroundColor: '#fff',
@@ -293,11 +307,16 @@ const styles = StyleSheet.create({
     color: BlueyColors.textPrimary,
     marginBottom: 16,
   },
-  typeRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+  typeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 20,
+  },
   typeOption: {
-    flex: 1,
+    width: '47%',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: 14,
     borderWidth: 2,
     borderColor: BlueyColors.borderLight,
@@ -307,8 +326,13 @@ const styles = StyleSheet.create({
     borderColor: BlueyColors.blueyMain,
     backgroundColor: BlueyColors.blueyLight,
   },
-  typeOptionEmoji: { fontSize: 22, marginBottom: 4 },
-  typeOptionLabel: { ...Typography.labelSmall, color: BlueyColors.textPrimary },
+  typeOptionEmoji: { fontSize: 26, marginBottom: 6 },
+  typeOptionLabel: {
+    ...Typography.labelSmall,
+    color: BlueyColors.textPrimary,
+    textAlign: 'center',
+    minHeight: 18,
+  },
   createActions: { flexDirection: 'row', gap: 12 },
   halfBtn: { flex: 1 },
 });

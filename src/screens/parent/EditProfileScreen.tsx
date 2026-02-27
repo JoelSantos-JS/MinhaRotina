@@ -1,10 +1,22 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Image,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 import { BlueyButton } from '../../components/ui/BlueyButton';
 import { BlueyInput } from '../../components/ui/BlueyInput';
 import { supabase } from '../../config/supabase';
+import { authService } from '../../services/auth.service';
 import { useAuthStore } from '../../stores/authStore';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
@@ -15,21 +27,81 @@ export const EditProfileScreen: React.FC<ParentScreenProps<'EditProfile'>> = ({ 
   const setParent = useAuthStore((s) => s.setParent);
 
   const [name, setName] = useState(parent?.name ?? '');
+  const [photoUri, setPhotoUri] = useState<string | null>(parent?.photo_url ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const photoChanged = photoUri !== (parent?.photo_url ?? null);
+  const hasChanges = name.trim() !== parent?.name || photoChanged;
+
+  const pickFromGallery = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permissão necessária', 'Precisamos de acesso à sua galeria.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled) setPhotoUri(result.assets[0].uri);
+  };
+
+  const pickFromCamera = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permissão necessária', 'Precisamos de acesso à câmera.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled) setPhotoUri(result.assets[0].uri);
+  };
+
+  const showPhotoPicker = () => {
+    Alert.alert('Foto de perfil', 'Escolha uma opção', [
+      { text: 'Câmera', onPress: pickFromCamera },
+      { text: 'Galeria', onPress: pickFromGallery },
+      ...(photoUri ? [{ text: 'Remover foto', style: 'destructive' as const, onPress: () => setPhotoUri(null) }] : []),
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  };
 
   const handleSave = async () => {
     if (!name.trim()) { setError('Digite seu nome.'); return; }
     setError('');
     setLoading(true);
     try {
-      const { error: dbError } = await supabase
-        .from('parent_accounts')
-        .update({ name: name.trim() })
-        .eq('id', parent!.id);
+      let newPhotoUrl = parent?.photo_url ?? null;
 
-      if (dbError) throw dbError;
-      setParent({ ...parent!, name: name.trim() });
+      // Handle photo changes
+      if (photoChanged) {
+        if (photoUri === null) {
+          // Remove photo
+          await authService.updateParentPhotoUrl(parent!.id, null);
+          newPhotoUrl = null;
+        } else {
+          // Upload new photo
+          newPhotoUrl = await authService.uploadParentPhoto(parent!.id, photoUri);
+          await authService.updateParentPhotoUrl(parent!.id, newPhotoUrl);
+        }
+      }
+
+      // Update name if changed
+      if (name.trim() !== parent?.name) {
+        const { error: dbError } = await supabase
+          .from('parent_accounts')
+          .update({ name: name.trim() })
+          .eq('id', parent!.id);
+        if (dbError) throw dbError;
+      }
+
+      setParent({ ...parent!, name: name.trim(), photo_url: newPhotoUrl });
       Alert.alert('✅ Salvo!', 'Seu perfil foi atualizado.', [
         { text: 'OK', onPress: () => navigation.goBack() },
       ]);
@@ -52,40 +124,52 @@ export const EditProfileScreen: React.FC<ParentScreenProps<'EditProfile'>> = ({ 
         </View>
 
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          {/* Avatar */}
-          <View style={styles.avatarContainer}>
-            <Text style={styles.avatarEmoji}>👤</Text>
-            <Text style={styles.avatarName}>{parent?.name}</Text>
-            <Text style={styles.avatarEmail}>{parent?.email}</Text>
-          </View>
-
-          <View style={styles.card}>
-            <BlueyInput
-              label="Seu nome"
-              value={name}
-              onChangeText={setName}
-              placeholder="Ex: Maria Silva"
-              autoCapitalize="words"
-            />
-
-            <View style={styles.emailBox}>
-              <Text style={styles.emailLabel}>Email</Text>
-              <Text style={styles.emailValue}>{parent?.email}</Text>
-              <Text style={styles.emailHint}>O email não pode ser alterado aqui.</Text>
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            {/* Avatar */}
+            <View style={styles.avatarContainer}>
+              <TouchableOpacity onPress={showPhotoPicker} style={styles.avatarPhotoWrap} activeOpacity={0.8}>
+                {photoUri ? (
+                  <Image source={{ uri: photoUri }} style={styles.avatarPhoto} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text style={styles.avatarEmoji}>👤</Text>
+                  </View>
+                )}
+                <View style={styles.avatarEditBadge}>
+                  <Text style={styles.avatarEditBadgeText}>📷</Text>
+                </View>
+              </TouchableOpacity>
+              <Text style={styles.avatarName}>{parent?.name}</Text>
+              <Text style={styles.avatarEmail}>{parent?.email}</Text>
+              <Text style={styles.avatarPhotoHint}>Toque na foto para alterar</Text>
             </View>
-          </View>
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+            <View style={styles.card}>
+              <BlueyInput
+                label="Seu nome"
+                value={name}
+                onChangeText={setName}
+                placeholder="Ex: Maria Silva"
+                autoCapitalize="words"
+              />
 
-          <BlueyButton
-            title="✅ Salvar Alterações"
-            onPress={handleSave}
-            loading={loading}
-            disabled={!name.trim() || name.trim() === parent?.name}
-            style={styles.btn}
-          />
-        </ScrollView>
+              <View style={styles.emailBox}>
+                <Text style={styles.emailLabel}>Email</Text>
+                <Text style={styles.emailValue}>{parent?.email}</Text>
+                <Text style={styles.emailHint}>O email não pode ser alterado aqui.</Text>
+              </View>
+            </View>
+
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            <BlueyButton
+              title="✅ Salvar Alterações"
+              onPress={handleSave}
+              loading={loading}
+              disabled={!name.trim() || !hasChanges}
+              style={styles.btn}
+            />
+          </ScrollView>
         </KeyboardAvoidingView>
       </LinearGradient>
     </SafeAreaView>
@@ -114,9 +198,45 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: BlueyColors.borderMedium,
   },
-  avatarEmoji: { fontSize: 64, marginBottom: 12 },
+  avatarPhotoWrap: {
+    position: 'relative',
+    marginBottom: 12,
+  },
+  avatarPhoto: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    borderWidth: 3,
+    borderColor: BlueyColors.blueyMain,
+  },
+  avatarPlaceholder: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: BlueyColors.backgroundBlue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: BlueyColors.borderMedium,
+  },
+  avatarEmoji: { fontSize: 52 },
+  avatarEditBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: BlueyColors.blueyMain,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  avatarEditBadgeText: { fontSize: 14 },
   avatarName: { ...Typography.titleLarge, color: BlueyColors.textPrimary, marginBottom: 4 },
-  avatarEmail: { ...Typography.bodySmall, color: BlueyColors.textSecondary },
+  avatarEmail: { ...Typography.bodySmall, color: BlueyColors.textSecondary, marginBottom: 4 },
+  avatarPhotoHint: { ...Typography.bodySmall, color: BlueyColors.textPlaceholder },
   card: {
     backgroundColor: '#fff',
     borderRadius: 20,

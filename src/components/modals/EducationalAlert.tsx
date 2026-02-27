@@ -73,10 +73,12 @@ export const EducationalAlert: React.FC<EducationalAlertProps> = ({
   const data = ALERT_DATA[category];
   const translateY = useRef(new Animated.Value(16)).current;
   const opacity = useRef(new Animated.Value(0)).current;
+  const barAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     translateY.setValue(16);
     opacity.setValue(0);
+    barAnim.setValue(0);
     Animated.parallel([
       Animated.spring(translateY, {
         toValue: 0,
@@ -89,7 +91,15 @@ export const EducationalAlert: React.FC<EducationalAlertProps> = ({
         duration: 220,
         useNativeDriver: true,
       }),
-    ]).start();
+    ]).start(() => {
+      // Anima a barra após o card aparecer
+      Animated.timing(barAnim, {
+        toValue: data.percentage,
+        duration: 800,
+        delay: 80,
+        useNativeDriver: false, // width não suporta native driver
+      }).start();
+    });
   }, [category]);
 
   return (
@@ -117,7 +127,17 @@ export const EducationalAlert: React.FC<EducationalAlertProps> = ({
         {/* Percentage bar */}
         <View style={styles.barContainer}>
           <View style={styles.barTrack}>
-            <View style={[styles.barFill, { width: `${data.percentage}%` as any }]} />
+            <Animated.View
+              style={[
+                styles.barFill,
+                {
+                  width: barAnim.interpolate({
+                    inputRange: [0, 100],
+                    outputRange: ['0%', '100%'],
+                  }),
+                },
+              ]}
+            />
           </View>
           <Text style={styles.barLabel}>{data.statLabel}</Text>
         </View>

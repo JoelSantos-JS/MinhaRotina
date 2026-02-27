@@ -47,6 +47,12 @@ export interface Routine {
   updated_at: string;
 }
 
+export interface RoutinesConfig {
+  morning: boolean;
+  afternoon: boolean;
+  night: boolean;
+}
+
 export interface Task {
   id: string;
   routine_id: string;
@@ -59,6 +65,7 @@ export interface Task {
   photo_url?: string | null;
   description?: string | null;
   video_url?: string | null;
+  routines_config?: RoutinesConfig | null;
   created_at: string;
   updated_at: string;
 }
@@ -72,6 +79,7 @@ export interface TaskProgress {
   completion_date: string;
   took_minutes?: number | null;
   mood?: string | null;
+  note?: string | null;
 }
 
 export interface EducationalStrategy {

@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase';
-import type { Routine, Task, TaskProgress } from '../types/models';
+import { compressImage, base64ToUint8Array } from '../utils/imageUtils';
+import type { Routine, RoutinesConfig, Task, TaskProgress } from '../types/models';
 
 export const routineService = {
   async getRoutinesByChild(childId: string): Promise<Routine[]> {
@@ -84,13 +85,12 @@ export const taskService = {
   },
 
   async uploadTaskPhoto(taskId: string, localUri: string): Promise<string> {
-    const ext = localUri.split('.').pop()?.toLowerCase() || 'jpg';
-    const path = `${taskId}.${ext}`;
-    const response = await fetch(localUri);
-    const blob = await response.blob();
+    const { base64 } = await compressImage(localUri);
+    const bytes = base64ToUint8Array(base64);
+    const path = `${taskId}.jpg`;
     const { error } = await supabase.storage
       .from('task-photos')
-      .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+      .upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
     if (error) throw error;
     const { data } = supabase.storage.from('task-photos').getPublicUrl(path);
     return data.publicUrl;
@@ -137,6 +137,7 @@ export const taskService = {
       photoLocalUri?: string;
       description?: string;
       videoLocalUri?: string;
+      routinesConfig?: RoutinesConfig;
     }
   ): Promise<Task> {
     const { data, error } = await supabase
@@ -150,6 +151,7 @@ export const taskService = {
         has_sensory_issues: options?.hasSensoryIssues ?? false,
         sensory_category: options?.sensoryCategory ?? null,
         description: options?.description ?? null,
+        routines_config: options?.routinesConfig ?? null,
       })
       .select()
       .single();
@@ -158,23 +160,15 @@ export const taskService = {
     let task = data as Task;
 
     if (options?.photoLocalUri) {
-      try {
-        const publicUrl = await taskService.uploadTaskPhoto(task.id, options.photoLocalUri);
-        await taskService.updateTaskPhoto(task.id, publicUrl);
-        task = { ...task, photo_url: publicUrl };
-      } catch {
-        // photo upload failed — task still created, just without photo
-      }
+      const publicUrl = await taskService.uploadTaskPhoto(task.id, options.photoLocalUri);
+      await taskService.updateTaskPhoto(task.id, publicUrl);
+      task = { ...task, photo_url: publicUrl };
     }
 
     if (options?.videoLocalUri) {
-      try {
-        const videoUrl = await taskService.uploadTaskVideo(task.id, options.videoLocalUri);
-        await taskService.updateTaskVideo(task.id, videoUrl);
-        task = { ...task, video_url: videoUrl };
-      } catch {
-        // video upload failed — task still created, just without video
-      }
+      const videoUrl = await taskService.uploadTaskVideo(task.id, options.videoLocalUri);
+      await taskService.updateTaskVideo(task.id, videoUrl);
+      task = { ...task, video_url: videoUrl };
     }
 
     return task;
@@ -191,6 +185,7 @@ export const taskService = {
       photoLocalUri?: string | null;
       description?: string | null;
       videoLocalUri?: string | null;
+      routinesConfig?: RoutinesConfig;
     }
   ): Promise<Task> {
     const payload: Record<string, unknown> = {};
@@ -200,6 +195,7 @@ export const taskService = {
     if (updates.hasSensoryIssues !== undefined) payload.has_sensory_issues = updates.hasSensoryIssues;
     if ('sensoryCategory' in updates) payload.sensory_category = updates.sensoryCategory ?? null;
     if ('description' in updates) payload.description = updates.description ?? null;
+    if (updates.routinesConfig !== undefined) payload.routines_config = updates.routinesConfig;
 
     const { data, error } = await supabase
       .from('tasks')
@@ -272,6 +268,18 @@ export const taskService = {
     });
     if (error) throw error;
   },
+
+  async getCompletedTaskIdsToday(childId: string, routineId: string): Promise<string[]> {
+    const todayStart = new Date().toISOString().split('T')[0] + 'T00:00:00.000Z';
+    const { data } = await supabase
+      .from('task_progress')
+      .select('task_id')
+      .eq('child_id', childId)
+      .eq('routine_id', routineId)
+      .gte('completed_at', todayStart)
+      .not('task_id', 'is', null);
+    return (data ?? []).map((r: { task_id: string }) => r.task_id);
+  },
 };
 
 export const progressService = {
@@ -310,6 +318,22 @@ export const progressService = {
       tasks: { name: string; icon_emoji: string } | null;
       routines: { name: string } | null;
     }>;
+  },
+
+  async saveProgressNote(progressId: string, note: string): Promise<void> {
+    const { error } = await supabase
+      .from('task_progress')
+      .update({ note: note.trim() || null })
+      .eq('id', progressId);
+    if (error) throw error;
+  },
+
+  async saveSkipNote(skipId: string, note: string): Promise<void> {
+    const { error } = await supabase
+      .from('task_skips')
+      .update({ note: note.trim() || null })
+      .eq('id', skipId);
+    if (error) throw error;
   },
 
   async getRoutineCompletionCount(childId: string, routineId: string): Promise<number> {

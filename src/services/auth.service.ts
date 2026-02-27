@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase';
+import { compressAvatar, base64ToUint8Array } from '../utils/imageUtils';
 import type { ParentAccount } from '../types/models';
 
 export interface AuthResult<T> {
@@ -157,6 +158,26 @@ export const authService = {
     const { data } = await supabase.from('parent_accounts').select('*').eq('id', user.id).single();
 
     return data as ParentAccount | null;
+  },
+
+  async uploadParentPhoto(parentId: string, localUri: string): Promise<string> {
+    const { base64 } = await compressAvatar(localUri);
+    const bytes = base64ToUint8Array(base64);
+    const path = `${parentId}.jpg`;
+    const { error } = await supabase.storage
+      .from('parent-photos')
+      .upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
+    if (error) throw error;
+    const { data } = supabase.storage.from('parent-photos').getPublicUrl(path);
+    return data.publicUrl;
+  },
+
+  async updateParentPhotoUrl(parentId: string, photoUrl: string | null): Promise<void> {
+    const { error } = await supabase
+      .from('parent_accounts')
+      .update({ photo_url: photoUrl })
+      .eq('id', parentId);
+    if (error) throw error;
   },
 };
 
