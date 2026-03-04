@@ -10,11 +10,27 @@ import {
   Image,
   Linking,
   ScrollView,
+  Dimensions,
 } from 'react-native';
+
+const { height: SCREEN_H } = Dimensions.get('window');
+// Telas pequenas (<680px de altura) usam tamanhos reduzidos
+const SMALL = SCREEN_H < 680;
+const TIMER_SIZE  = SMALL ? 72  : 88;
+const EMOJI_SIZE  = SMALL ? 72  : 96;
+const EMOJI_LINE  = SMALL ? 82  : 108;
+const CARD_PAD    = SMALL ? 16  : 22;
+const NAME_SIZE   = SMALL ? 22  : 26;
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { feedbackService } from '../../services/feedbackService';
+import {
+  onTaskCompleted,
+  onMoveToNextTask,
+  onTaskSkipped,
+  onCalmModeEntered,
+  onRoutineStarted,
+} from '../../utils/taskEventHandlers';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { routineService, taskService } from '../../services/routine.service';
 import { useAuthStore } from '../../stores/authStore';
@@ -22,6 +38,7 @@ import { useRoutineStore } from '../../stores/routineStore';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { isRoutineAvailableNow } from '../../utils/timeWindow';
+import { useParentSettingsStore } from '../../stores/parentSettingsStore';
 import type { Task } from '../../types/models';
 import type { ChildScreenProps } from '../../types/navigation';
 
@@ -37,8 +54,8 @@ function getRoutineTypeLabel(type: string): string {
 
 
 // ─── Circular Timer Component ─────────────────────────────────────────────────
-// Uses the two-halves mask technique: two white semicircles rotate to
-// cover/uncover a colored disc, creating a Time Timer-style countdown.
+// Implementação simples e confiável no Android: anel colorido + texto central.
+// A opacidade do preenchimento diminui à medida que o tempo passa.
 
 interface CircularTimerProps {
   remaining: number; // seconds left
@@ -51,18 +68,12 @@ const CircularTimer: React.FC<CircularTimerProps> = ({
   remaining,
   total,
   color,
-  size = 108,
+  size = 88,
 }) => {
   const progress = total > 0 ? Math.max(0, Math.min(1, remaining / total)) : 1;
-  const elapsed = 1 - progress;
+  const isUrgent = remaining <= 30 && remaining > 0;
+  const fillColor = isUrgent ? '#E57373' : color;
   const half = size / 2;
-
-  // Right mask: starts rotated OUT (180°=blue visible) → rotates IN (0°=white covers right)
-  const rightRotate = 180 * (1 - Math.min(elapsed * 2, 1));
-  // Left mask: starts rotated OUT (-180°=blue visible) → rotates IN (0°=white covers left)
-  const leftRotate = -180 + Math.max(0, (elapsed - 0.5) * 2) * 180;
-
-  const fillColor = remaining <= 30 && remaining > 0 ? '#E57373' : color;
 
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
@@ -71,95 +82,25 @@ const CircularTimer: React.FC<CircularTimerProps> = ({
     : `${secs}s`;
 
   return (
-    <View style={{ width: size, height: size }}>
-      {/* Track (light background disc) */}
-      <View
-        style={[
-          StyleSheet.absoluteFill,
-          { borderRadius: half, backgroundColor: color + '30' },
-        ]}
-      />
-      {/* Fill (the colored "remaining" disc) */}
-      <View
-        style={[
-          StyleSheet.absoluteFill,
-          { borderRadius: half, backgroundColor: fillColor },
-        ]}
-      />
-
-      {/* Right half-mask (clips to right 50%, inner circle rotates to reveal/cover) */}
-      <View
-        style={{
-          position: 'absolute',
-          right: 0,
-          top: 0,
-          width: half,
-          height: size,
-          overflow: 'hidden',
-        }}
-      >
-        <View
-          style={{
-            position: 'absolute',
-            left: -half,
-            top: 0,
-            width: size,
-            height: size,
-            borderRadius: half,
-            backgroundColor: CARD_BG,
-            transform: [{ rotate: `${rightRotate}deg` }],
-          }}
-        />
-      </View>
-
-      {/* Left half-mask */}
-      <View
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          width: half,
-          height: size,
-          overflow: 'hidden',
-        }}
-      >
-        <View
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            width: size,
-            height: size,
-            borderRadius: half,
-            backgroundColor: CARD_BG,
-            transform: [{ rotate: `${leftRotate}deg` }],
-          }}
-        />
-      </View>
-
-      {/* Outer ring (always visible, shows full circle boundary) */}
-      <View
-        style={[
-          StyleSheet.absoluteFill,
-          {
-            borderRadius: half,
-            borderWidth: 3,
-            borderColor: fillColor + '80',
-          },
-        ]}
-      />
-
-      {/* Center countdown text */}
-      <View
-        style={[
-          StyleSheet.absoluteFill,
-          { justifyContent: 'center', alignItems: 'center' },
-        ]}
-      >
-        <Text style={[styles.timerText, { color: remaining <= 30 ? '#fff' : '#fff' }]}>
-          {timeStr}
-        </Text>
-      </View>
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      {/* Fundo fixo (track) */}
+      <View style={[StyleSheet.absoluteFill, { borderRadius: half, backgroundColor: fillColor + '22' }]} />
+      {/* Preenchimento que some conforme o tempo passa */}
+      <View style={[StyleSheet.absoluteFill, {
+        borderRadius: half,
+        backgroundColor: fillColor,
+        opacity: 0.12 + 0.78 * progress,
+      }]} />
+      {/* Anel externo sempre visível */}
+      <View style={[StyleSheet.absoluteFill, {
+        borderRadius: half,
+        borderWidth: 3,
+        borderColor: fillColor,
+      }]} />
+      {/* Texto central */}
+      <Text style={[styles.timerText, { color: '#FFFFFF', fontSize: size * 0.26, lineHeight: size * 0.32, textShadowColor: 'rgba(0,0,0,0.25)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }]}>
+        {timeStr}
+      </Text>
     </View>
   );
 };
@@ -206,6 +147,7 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
   const { childId, routineId } = route.params;
   const child = useAuthStore((s) => s.child);
   const { isLoading, fetchError, fetchTasks } = useRoutineStore();
+  const { settings } = useParentSettingsStore();
 
   // Local queue (supports "try later" reordering)
   const [localQueue, setLocalQueue] = useState<Task[]>([]);
@@ -219,16 +161,40 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
   const [skipVisible, setSkipVisible] = useState(false);
   const [particles, setParticles] = useState<Particle[]>([]);
 
+
   // Timer
   const [timeLeft, setTimeLeft] = useState(300);
   const [totalTime, setTotalTime] = useState(300);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeoutRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const isMountedRef = useRef(true);
 
   // Animations
   const taskOpacity = useRef(new Animated.Value(1)).current;
   const taskSlide = useRef(new Animated.Value(0)).current;
   const btnScale = useRef(new Animated.Value(1)).current;
   const startTime = useRef(Date.now());
+
+  const scheduleTimeout = useCallback((fn: () => void, delayMs: number) => {
+    const timeoutId = setTimeout(() => {
+      timeoutRefs.current = timeoutRefs.current.filter((id) => id !== timeoutId);
+      if (isMountedRef.current) {
+        fn();
+      }
+    }, delayMs);
+    timeoutRefs.current.push(timeoutId);
+    return timeoutId;
+  }, []);
+
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+      if (timerRef.current) clearInterval(timerRef.current);
+      timeoutRefs.current.forEach((id) => clearTimeout(id));
+      timeoutRefs.current = [];
+    },
+    []
+  );
 
   // ── Load tasks ──────────────────────────────────────────────────────────────
   const [fetchDone, setFetchDone] = useState(false);
@@ -277,6 +243,7 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
             setAllTasksForSummary([...freshTasks]);
             setLocalQueue(pending);
             setLocalIndex(0);
+            onRoutineStarted(childId);
           }
         }
       } finally {
@@ -324,6 +291,16 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
   const totalTasks = localQueue.length;
   const themeColor = child?.color_theme ?? BlueyColors.blueyMain;
 
+  // Suporte visual: controla o que é exibido no card da tarefa
+  // 'images_text'  → tudo (emoji/foto + nome + passos/descrição + vídeo)
+  // 'reduced_text' → emoji/foto + nome + descrição (sem checklist de passos)
+  // 'images_only'  → emoji/foto + nome (sem texto extra, sem vídeo)
+  const visualSupport = child?.visual_support_type ?? 'images_text';
+
+  // Perfil sensorial: adapta animações e exibe alertas quando necessário
+  const sensoryProfile = child?.sensory_profile;
+  const isVisualSensitive = sensoryProfile?.visual === 'hyper-reactive';
+
   // ── Task transition animation ───────────────────────────────────────────────
   const animateTransition = useCallback(
     (callback: () => void) => {
@@ -344,6 +321,8 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
 
   // ── Mini celebration (flying emojis) ───────────────────────────────────────
   const triggerMiniCelebration = useCallback(() => {
+    if (!settings.miniCelebrationsEnabled) return;
+    if (isVisualSensitive) return; // visual hyper-reactive: evita estímulos extras
     const EMOJIS = ['⭐', '✨', '🎉', '⭐', '🌟'];
     const newParticles: Particle[] = EMOJIS.map((emoji, i) => ({
       id: Date.now() + i,
@@ -367,8 +346,8 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
         }),
       ]).start();
     });
-    setTimeout(() => setParticles([]), 1100);
-  }, []);
+    scheduleTimeout(() => setParticles([]), 1100);
+  }, [scheduleTimeout, isVisualSensitive]);
 
   // ── Button scale animation ──────────────────────────────────────────────────
   const animateButton = useCallback(() => {
@@ -379,35 +358,41 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
   }, [btnScale]);
 
   // ── Complete task ────────────────────────────────────────────────────────────
-  const handleComplete = async () => {
-    if (!currentTask || completing) return;
+  const doComplete = useCallback(async (stepNote?: string) => {
     setCompleting(true);
     animateButton();
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     triggerMiniCelebration();
 
     const tookMinutes = Math.round((Date.now() - startTime.current) / 60000);
     try {
-      await taskService.recordCompletion(childId, routineId, currentTask.id, tookMinutes);
+      await taskService.recordCompletion(childId, routineId, currentTask!.id, tookMinutes, stepNote);
     } catch {}
 
     if (isLastTask) {
-      await feedbackService.triggerRoutineComplete(childId);
-      setTimeout(() => {
+      onTaskCompleted(childId);
+      scheduleTimeout(() => {
         navigation.replace('Celebration', { childId, routineName: 'Rotina' });
       }, 700);
     } else {
+      onTaskCompleted(childId);
       animateTransition(() => {
+        if (!isMountedRef.current) return;
         setLocalIndex((prev) => prev + 1);
         setCompleting(false);
+        onMoveToNextTask(childId);
       });
     }
-  };
+  }, [animateButton, animateTransition, childId, currentTask, isLastTask, routineId, scheduleTimeout, triggerMiniCelebration]);
+
+  const handleComplete = useCallback(() => {
+    if (!currentTask || completing) return;
+    doComplete();
+  }, [currentTask, completing, doComplete]);
 
   // ── Skip — pular por agora ──────────────────────────────────────────────────
   const handleSkipNow = () => {
     setSkipVisible(false);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    onTaskSkipped(childId);
     if (currentTask) {
       taskService.recordSkip(childId, routineId, currentTask.id, 'skip_now').catch(() => {});
     }
@@ -416,6 +401,7 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
       return;
     }
     animateTransition(() => {
+      if (!isMountedRef.current) return;
       setLocalIndex((prev) => prev + 1);
       setCompleting(false);
     });
@@ -424,7 +410,7 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
   // ── Skip — tentar no final ──────────────────────────────────────────────────
   const handleTryLater = () => {
     setSkipVisible(false);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    onTaskSkipped(childId);
     if (currentTask) {
       taskService.recordSkip(childId, routineId, currentTask.id, 'try_later').catch(() => {});
     }
@@ -437,10 +423,33 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
     const [skipped] = newQueue.splice(localIndex, 1);
     newQueue.push(skipped);
     animateTransition(() => {
+      if (!isMountedRef.current) return;
       setLocalQueue(newQueue);
       // localIndex stays same → now points to next task (which moved up)
     });
   };
+
+  const handleOpenVideo = useCallback(async () => {
+    const rawUrl = currentTask?.video_url?.trim();
+    if (!rawUrl) return;
+
+    const isHttp = /^https?:\/\//i.test(rawUrl);
+    if (!isHttp) {
+      Alert.alert('Link invalido', 'Use apenas links com http ou https.');
+      return;
+    }
+
+    try {
+      const canOpen = await Linking.canOpenURL(rawUrl);
+      if (!canOpen) {
+        Alert.alert('Nao foi possivel abrir', 'Este link de video nao e suportado no aparelho.');
+        return;
+      }
+      await Linking.openURL(rawUrl);
+    } catch {
+      Alert.alert('Erro ao abrir video', 'Tente novamente em instantes.');
+    }
+  }, [currentTask?.video_url]);
 
   // ── Loading / empty states ──────────────────────────────────────────────────
   if (isLoading || !fetchDone) {
@@ -526,8 +535,13 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
           <TouchableOpacity
             style={styles.topBtn}
             onPress={() => {
-              setCalmMode((v) => !v);
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              const entering = !calmMode;
+              setCalmMode(entering);
+              if (entering) {
+                onCalmModeEntered(childId);
+              } else {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              }
             }}
             activeOpacity={0.75}
           >
@@ -540,16 +554,19 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
             </Text>
           </View>
 
-          <TouchableOpacity
-            style={[styles.topBtn, styles.escapeBtn]}
-            onPress={() => {
-              setSkipVisible(true);
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-            }}
-            activeOpacity={0.75}
-          >
-            <Text style={styles.topBtnText}>😔</Text>
-          </TouchableOpacity>
+          {settings.helpButtonEnabled && (
+            <TouchableOpacity
+              style={[styles.topBtn, styles.escapeBtn]}
+              onPress={() => {
+                setSkipVisible(true);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              }}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.topBtnText}>😔</Text>
+            </TouchableOpacity>
+          )}
+          {!settings.helpButtonEnabled && <View style={{ width: 44 }} />}
         </View>
 
         {/* ── Progress dots (hidden in calm mode) ──────────────────────────── */}
@@ -600,54 +617,90 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
         >
           {/* Task card */}
           <View style={[styles.taskCard, { borderColor: themeColor + '66' }]}>
-            {/* Timer (hidden in calm mode) */}
-            {!calmMode && (
-              <View style={styles.timerWrap}>
-                <CircularTimer
-                  remaining={timeLeft}
-                  total={totalTime}
-                  color={themeColor}
-                  size={108}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.taskCardContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Timer (hidden in calm mode) */}
+              {!calmMode && (
+                <View style={styles.timerWrap}>
+                  <CircularTimer
+                    remaining={timeLeft}
+                    total={totalTime}
+                    color={themeColor}
+                    size={TIMER_SIZE}
+                  />
+                  <Text style={styles.timerLabel}>⏱ Tempo</Text>
+                </View>
+              )}
+
+              {/* Task image or emoji */}
+              {currentTask?.photo_url ? (
+                <Image
+                  source={{ uri: currentTask.photo_url }}
+                  style={[
+                    styles.taskPhoto,
+                    (calmMode || visualSupport === 'images_only') && styles.taskPhotoCalm,
+                  ]}
+                  resizeMode="cover"
                 />
-              </View>
-            )}
-
-            {/* Task image or emoji */}
-            {currentTask?.photo_url ? (
-              <Image
-                source={{ uri: currentTask.photo_url }}
-                style={[styles.taskPhoto, calmMode && styles.taskPhotoCalm]}
-                resizeMode="cover"
-              />
-            ) : (
-              <Text style={[styles.taskEmoji, calmMode && styles.taskEmojiCalm]}>
-                {currentTask?.icon_emoji}
-              </Text>
-            )}
-
-            {/* Task name */}
-            <Text style={styles.taskName}>{currentTask?.name}</Text>
-
-            {/* Instructions */}
-            {currentTask?.description ? (
-              <View style={styles.descriptionBox}>
-                <Text style={styles.descriptionText}>{currentTask.description}</Text>
-              </View>
-            ) : null}
-
-            {/* Video example button */}
-            {currentTask?.video_url ? (
-              <TouchableOpacity
-                style={[styles.videoBtn, { borderColor: themeColor }]}
-                onPress={() => Linking.openURL(currentTask.video_url!).catch(() => {})}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.videoBtnEmoji}>{'▶\uFE0F'}</Text>
-                <Text style={[styles.videoBtnText, { color: themeColor }]}>
-                  {'Ver v\u00EDdeo de exemplo'}
+              ) : (
+                <Text
+                  style={[
+                    styles.taskEmoji,
+                    (calmMode || visualSupport === 'images_only') && styles.taskEmojiCalm,
+                  ]}
+                >
+                  {currentTask?.icon_emoji}
                 </Text>
-              </TouchableOpacity>
-            ) : null}
+              )}
+
+              {/* Task name */}
+              <Text style={styles.taskName}>{currentTask?.name}</Text>
+
+              {/* Alerta sensorial tátil */}
+              {sensoryProfile?.tactile === 'hyper-reactive' && currentTask?.has_sensory_issues && (
+                <View style={styles.sensoryWarning}>
+                  <Text style={styles.sensoryWarningText}>
+                    🧤 Tarefa com toque — respira fundo antes de começar
+                  </Text>
+                </View>
+              )}
+
+              {/* Passos ou descrição */}
+              {visualSupport === 'images_text' && currentTask?.steps && currentTask.steps.length > 0 ? (
+                <View style={styles.stepsBox}>
+                  <Text style={styles.stepsTitle}>{'📋 Passos'}</Text>
+                  {currentTask.steps.map((step, index) => (
+                    <View key={step.id} style={styles.stepRow}>
+                      <View style={styles.stepBullet}>
+                        <Text style={styles.stepBulletText}>{index + 1}</Text>
+                      </View>
+                      <Text style={styles.stepText}>{step.text}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : visualSupport !== 'images_only' && currentTask?.description ? (
+                <View style={styles.descriptionBox}>
+                  <Text style={styles.descriptionText}>{currentTask.description}</Text>
+                </View>
+              ) : null}
+
+              {/* Video example button (oculto para images_only) */}
+              {visualSupport !== 'images_only' && currentTask?.video_url ? (
+                <TouchableOpacity
+                  style={[styles.videoBtn, { borderColor: themeColor }]}
+                  onPress={handleOpenVideo}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.videoBtnEmoji}>{'▶\uFE0F'}</Text>
+                  <Text style={[styles.videoBtnText, { color: themeColor }]}>
+                    {'Ver v\u00EDdeo de exemplo'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </ScrollView>
           </View>
 
           {/* "O que vem depois" (hidden in calm mode) */}
@@ -655,21 +708,19 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
             <View style={[styles.nextCard, { borderColor: themeColor + '44' }]}>
               {nextTaskData ? (
                 <>
-                  <Text style={styles.nextLabel}>Depois vem:</Text>
-                  <View style={styles.nextRow}>
-                    <View style={[styles.nextIconBg, { backgroundColor: themeColor + '25' }]}>
-                      <Text style={styles.nextEmoji}>{nextTaskData.icon_emoji}</Text>
-                    </View>
-                    <Text style={styles.nextName}>{nextTaskData.name}</Text>
+                  <Text style={styles.nextLabel}>Depois:</Text>
+                  <View style={[styles.nextIconBg, { backgroundColor: themeColor + '25' }]}>
+                    <Text style={styles.nextEmoji}>{nextTaskData.icon_emoji}</Text>
                   </View>
+                  <Text style={styles.nextName} numberOfLines={1}>{nextTaskData.name}</Text>
                 </>
               ) : (
-                <View style={styles.nextRow}>
+                <>
                   <Text style={styles.nextEmoji}>🎉</Text>
-                  <Text style={[styles.nextName, { color: '#8FB875' }]}>
-                    Última tarefa — depois vem a celebração!
+                  <Text style={[styles.nextName, { color: '#8FB875' }]} numberOfLines={1}>
+                    Última tarefa!
                   </Text>
-                </View>
+                </>
               )}
             </View>
           )}
@@ -828,57 +879,73 @@ const styles = StyleSheet.create({
   // ── Main animated area ──
   mainArea: {
     flex: 1,
-    paddingHorizontal: 20,
-    justifyContent: 'center',
-    gap: 14,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 8,
+    gap: 10,
+    // sem justifyContent: 'center' — taskCard usa flex:1 e ocupa o espaço disponível
   },
 
   // ── Task card ──
   taskCard: {
+    flex: 1,                // ocupa todo espaço entre dots e nextCard
     backgroundColor: CARD_BG,
-    borderRadius: 32,
+    borderRadius: 28,
     borderWidth: 3,
-    padding: 28,
-    alignItems: 'center',
+    overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.10,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  taskCardContent: {
+    padding: CARD_PAD,
+    alignItems: 'center',
+    paddingBottom: CARD_PAD + 4,
   },
   timerWrap: {
-    marginBottom: 20,
+    marginBottom: 10,
+    alignItems: 'center',
+    gap: 4,
+  },
+  timerLabel: {
+    ...Typography.labelSmall,
+    fontSize: 11,
+    color: BlueyColors.textSecondary,
+    letterSpacing: 0.5,
   },
   timerText: {
     fontFamily: 'Nunito_900Black',
-    fontSize: 22,
+    fontSize: 18,
     color: '#FFFFFF',
   },
   taskEmoji: {
-    fontSize: 120,
-    marginBottom: 12,
-    lineHeight: 132,
+    fontSize: EMOJI_SIZE,
+    marginBottom: 8,
+    lineHeight: EMOJI_LINE,
   },
   taskEmojiCalm: {
-    fontSize: 160,
-    lineHeight: 180,
+    fontSize: EMOJI_SIZE + 40,
+    lineHeight: EMOJI_LINE + 44,
   },
   taskPhoto: {
-    width: 120,
-    height: 120,
-    borderRadius: 24,
-    marginBottom: 12,
+    width: EMOJI_SIZE,
+    height: EMOJI_SIZE,
+    borderRadius: 20,
+    marginBottom: 8,
   },
   taskPhotoCalm: {
-    width: 160,
-    height: 160,
-    borderRadius: 30,
+    width: EMOJI_SIZE + 40,
+    height: EMOJI_SIZE + 40,
+    borderRadius: 26,
   },
   taskName: {
     ...Typography.headlineLarge,
-    fontSize: 28,
+    fontSize: NAME_SIZE,
     color: BlueyColors.textPrimary,
     textAlign: 'center',
+    marginBottom: 4,
   },
   descriptionBox: {
     marginTop: 12,
@@ -893,6 +960,62 @@ const styles = StyleSheet.create({
     color: BlueyColors.textPrimary,
     textAlign: 'center',
     lineHeight: 26,
+  },
+  // ── Passo a passo ───────────────────────────────────────────────────────────
+  stepsBox: {
+    marginTop: 12,
+    backgroundColor: '#F0F7FF',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    alignSelf: 'stretch',
+  },
+  stepsTitle: {
+    ...Typography.labelMedium,
+    color: BlueyColors.textSecondary,
+    marginBottom: 10,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+    gap: 10,
+  },
+  stepBullet: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: BlueyColors.blueyMain,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  stepBulletText: {
+    color: '#fff',
+    fontFamily: 'Nunito_900Black',
+    fontSize: 13,
+    lineHeight: 16,
+  },
+  stepText: {
+    ...Typography.bodyMedium,
+    color: BlueyColors.textPrimary,
+    flex: 1,
+    paddingTop: 3,
+  },
+  sensoryWarning: {
+    marginTop: 10,
+    backgroundColor: '#FFF3E0',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignSelf: 'stretch',
+    borderWidth: 1.5,
+    borderColor: '#FFB74D',
+  },
+  sensoryWarningText: {
+    ...Typography.bodySmall,
+    color: '#E65100',
+    textAlign: 'center',
   },
   videoBtn: {
     marginTop: 14,
@@ -914,34 +1037,40 @@ const styles = StyleSheet.create({
   // ── "O que vem depois" card ──
   nextCard: {
     backgroundColor: 'rgba(255,255,255,0.75)',
-    borderRadius: 20,
-    borderWidth: 2,
+    borderRadius: 16,
+    borderWidth: 1.5,
     borderStyle: 'dashed',
-    padding: 14,
-    gap: 6,
-  },
-  nextLabel: {
-    ...Typography.labelSmall,
-    color: BlueyColors.textSecondary,
-    fontSize: 13,
-  },
-  nextRow: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
+  nextLabel: {
+    ...Typography.labelSmall,
+    color: BlueyColors.textSecondary,
+    fontSize: 12,
+    minWidth: 62,
+  },
+  nextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
   nextIconBg: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  nextEmoji: { fontSize: 28 },
+  nextEmoji: { fontSize: 22 },
   nextName: {
-    ...Typography.titleMedium,
+    ...Typography.bodyMedium,
     color: BlueyColors.textPrimary,
     flex: 1,
+    fontSize: 14,
   },
 
   // ── Footer ──
@@ -1116,4 +1245,3 @@ const styles = StyleSheet.create({
   },
   allDoneCheck: { fontSize: 22 },
 });
-
