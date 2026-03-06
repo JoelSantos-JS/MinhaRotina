@@ -1,4 +1,5 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { NavigatorScreenParams } from '@react-navigation/native';
 
 // Auth Stack
 export type AuthStackParamList = {
@@ -18,7 +19,8 @@ export type ParentTabParamList = {
 
 // Parent Stack (wraps tabs + pushes modal screens above tabs)
 export type ParentStackParamList = {
-  ParentTabs: undefined;
+  Onboarding: { fromSettings?: boolean } | undefined;
+  ParentTabs: NavigatorScreenParams<ParentTabParamList> | undefined;
   // kept for type compat with existing screens
   Dashboard: undefined;
   Settings: undefined;
@@ -30,11 +32,15 @@ export type ParentStackParamList = {
   Strategies: { category?: string } | undefined;
   EditProfile: undefined;
   ChangePassword: undefined;
+  Suggestions: undefined;
   About: undefined;
   Terms: undefined;
+  PrivacyPolicy: undefined;
   Progress: { childId: string };
   ThemePicker: { childId: string };
   ChildLogin: { childId: string };
+  Rewards: { childId: string; childName: string };
+  RoutineTemplates: { childId: string };
 };
 
 // Child Stack

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -29,23 +29,35 @@ export const AccessCodesModal: React.FC<AccessCodesModalProps> = ({
 }) => {
   const [pinCopied, setPinCopied] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   if (!child) return null;
 
-  const displayPin = child.access_pin ?? '••••';
-  const pinText = `${displayPin} - ${child.name.toUpperCase()}`;
+  const displayPin = child.access_pin?.trim() || null;
+  const pinText = displayPin ? `${displayPin} - ${child.name.toUpperCase()}` : '';
 
   const handleCopyPin = () => {
+    if (!displayPin) return;
     Clipboard.setString(pinText);
     setPinCopied(true);
-    setTimeout(() => setPinCopied(false), 2000);
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    copyTimeoutRef.current = setTimeout(() => setPinCopied(false), 2000);
   };
 
   const handleRegenerate = () => {
     if (!onRegeneratePin) return;
     Alert.alert(
-      '🔄 Gerar Novo PIN',
-      'Tem certeza? O PIN antigo não funcionará mais. Anote o novo antes de sair desta tela.',
+      'Gerar Novo PIN',
+      'Tem certeza? O PIN antigo nao funcionara mais. Anote o novo antes de sair desta tela.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -56,7 +68,7 @@ export const AccessCodesModal: React.FC<AccessCodesModalProps> = ({
             try {
               await onRegeneratePin();
             } catch {
-              Alert.alert('Erro', 'Não foi possível gerar novo PIN.');
+              Alert.alert('Erro', 'Nao foi possivel gerar novo PIN.');
             } finally {
               setRegenerating(false);
             }
@@ -87,33 +99,41 @@ export const AccessCodesModal: React.FC<AccessCodesModalProps> = ({
                 <Text style={styles.childEmoji}>{child.icon_emoji}</Text>
               </View>
               <View style={styles.headerText}>
-                <Text style={styles.headerTitle}>Códigos de Acesso</Text>
-                <Text style={styles.headerSub}>{child.name} pode usar qualquer um destes códigos para entrar no app</Text>
+                <Text style={styles.headerTitle}>Codigos de Acesso</Text>
+                <Text style={styles.headerSub}>{child.name} pode usar qualquer um destes codigos para entrar no app</Text>
               </View>
               <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                <Text style={styles.closeIcon}>✕</Text>
+                <Text style={styles.closeIcon}>X</Text>
               </TouchableOpacity>
             </View>
 
             {/* PIN Section */}
             <View style={styles.pinSection}>
-              <Text style={styles.sectionLabel}>🔢 PIN Numérico</Text>
+              <Text style={styles.sectionLabel}>PIN Numerico</Text>
               <View style={styles.pinDisplay}>
                 <Text style={styles.pinText} selectable>
-                  {displayPin}
+                  {displayPin ?? '••••'}
                 </Text>
                 <TouchableOpacity
                   onPress={handleCopyPin}
                   style={[styles.copyBtn, pinCopied && styles.copyBtnDone]}
+                  disabled={!displayPin}
                 >
-                  <Text style={styles.copyBtnText}>{pinCopied ? '✓ Copiado!' : '📋 Copiar'}</Text>
+                  <Text style={styles.copyBtnText}>
+                    {!displayPin ? 'Gerar novo PIN' : pinCopied ? 'Copiado!' : 'Copiar'}
+                  </Text>
                 </TouchableOpacity>
               </View>
+              {!displayPin ? (
+                <Text style={styles.pinHidden}>
+                  Por seguranca, o PIN antigo nao fica salvo. Gere um novo PIN para visualizar.
+                </Text>
+              ) : null}
             </View>
 
             {/* QR Code Section */}
             <View style={styles.qrSection}>
-              <Text style={styles.sectionLabel}>📷 QR Code</Text>
+              <Text style={styles.sectionLabel}>QR Code</Text>
               <View style={styles.qrBox}>
                 <QRCode
                   value={qrData}
@@ -122,16 +142,14 @@ export const AccessCodesModal: React.FC<AccessCodesModalProps> = ({
                   backgroundColor="#FFFFFD"
                 />
               </View>
-              <Text style={styles.qrHint}>
-                A câmera do app lê este QR Code para login automático
-              </Text>
+              <Text style={styles.qrHint}>A camera do app le este QR Code para login automatico</Text>
             </View>
 
             {/* Tip */}
             <View style={styles.tipBox}>
-              <Text style={styles.tipEmoji}>💡</Text>
+              <Text style={styles.tipEmoji}>Dica</Text>
               <Text style={styles.tipText}>
-                Você pode imprimir o QR Code e colar no quarto da criança. Assim ela pode escanear para entrar sem digitar o PIN.
+                Voce pode imprimir o QR Code e colar no quarto da crianca. Assim ela pode escanear para entrar sem digitar o PIN.
               </Text>
             </View>
 
@@ -143,7 +161,7 @@ export const AccessCodesModal: React.FC<AccessCodesModalProps> = ({
                 disabled={regenerating}
               >
                 <Text style={styles.regenText}>
-                  {regenerating ? 'Gerando novo PIN...' : '🔄 Gerar Novo PIN'}
+                  {regenerating ? 'Gerando novo PIN...' : 'Gerar Novo PIN'}
                 </Text>
               </TouchableOpacity>
             )}
@@ -309,3 +327,5 @@ const styles = StyleSheet.create({
   },
   regenText: { ...Typography.labelMedium, color: BlueyColors.alertOrange },
 });
+
+

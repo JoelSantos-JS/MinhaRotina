@@ -1,15 +1,20 @@
 import fs from 'fs';
 import path from 'path';
 
+const ROOT = path.resolve(__dirname, '..', '..');
 const SRC_ROOT = path.resolve(__dirname, '..');
 const AJUDA_SCREEN = path.resolve(SRC_ROOT, 'screens', 'parent', 'AjudaScreen.tsx');
+const EXTRA_FILES = [path.resolve(ROOT, 'App.tsx'), path.resolve(ROOT, 'index.js')];
 
-const MOJIBAKE_PATTERNS: RegExp[] = [
-  /Ã[\u0080-\u00BF]/,
-  /â[\u0080-\u00BF]/,
-  /ðŸ[\u0080-\u00BF]/,
-  /ï¸[\u0080-\u00BF]/,
-  /\uFFFD/,
+const MOJIBAKE_PATTERNS: Array<{ name: string; regex: RegExp }> = [
+  { name: 'A-tilde mojibake', regex: /[\u00C3][\u0080-\u00FF]/u },
+  { name: 'A-circumflex mojibake', regex: /[\u00C2][\u0080-\u00FF]/u },
+  { name: 'euro-chain mojibake', regex: /[\u00C3][\u00A2][\u201A][\u00AC]/u },
+  { name: 'latin-1 chain mojibake', regex: /[\u00E2][\u0080-\u00FF]/u },
+  { name: 'cp1252 punctuation mojibake', regex: /[\u00E2][\u2018-\u203A\u20AC\u2122]/u },
+  { name: 'emoji mojibake', regex: /[\u00F0][\u0178]/u },
+  { name: 'replacement char', regex: /\uFFFD/u },
+  { name: 'A-ring mojibake', regex: /[\u00C5][\u0080-\u00FF]/u },
 ];
 
 function listSourceFiles(dir: string): string[] {
@@ -25,7 +30,12 @@ function listSourceFiles(dir: string): string[] {
       continue;
     }
 
-    if (fullPath.endsWith('.ts') || fullPath.endsWith('.tsx')) {
+    if (
+      fullPath.endsWith('.ts') ||
+      fullPath.endsWith('.tsx') ||
+      fullPath.endsWith('.js') ||
+      fullPath.endsWith('.jsx')
+    ) {
       files.push(fullPath);
     }
   }
@@ -35,14 +45,17 @@ function listSourceFiles(dir: string): string[] {
 
 describe('encoding guard', () => {
   it('does not contain mojibake sequences in source files', () => {
-    const files = listSourceFiles(SRC_ROOT);
+    const files = [
+      ...listSourceFiles(SRC_ROOT),
+      ...EXTRA_FILES.filter((filePath) => fs.existsSync(filePath)),
+    ];
     const problems: string[] = [];
 
     for (const filePath of files) {
       const content = fs.readFileSync(filePath, 'utf8');
-      for (const pattern of MOJIBAKE_PATTERNS) {
-        if (pattern.test(content)) {
-          problems.push(`${path.relative(SRC_ROOT, filePath)} matches ${pattern}`);
+      for (const { name, regex } of MOJIBAKE_PATTERNS) {
+        if (regex.test(content)) {
+          problems.push(`${path.relative(ROOT, filePath)} matches ${name}`);
         }
       }
     }

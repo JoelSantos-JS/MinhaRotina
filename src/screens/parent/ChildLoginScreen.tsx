@@ -1,22 +1,16 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { PinInput } from '../../components/ui/PinInput';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { useChildStore } from '../../stores/childStore';
 import { useAuthStore } from '../../stores/authStore';
-import { verifyPin } from '../../utils/pinUtils';
 import { supabase } from '../../config/supabase';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import type { ParentScreenProps } from '../../types/navigation';
+import type { ChildAccount } from '../../types/models';
 
 export const ChildLoginScreen: React.FC<ParentScreenProps<'ChildLogin'>> = ({
   navigation,
@@ -24,20 +18,21 @@ export const ChildLoginScreen: React.FC<ParentScreenProps<'ChildLogin'>> = ({
 }) => {
   const { childId } = route.params;
   const { children } = useChildStore();
+  const parent = useAuthStore((s) => s.parent);
   const setChild = useAuthStore((s) => s.setChild);
 
   const child = children.find((c) => c.id === childId);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [pinKey, setPinKey] = useState(0); // increment to reset PinInput
+  const [pinKey, setPinKey] = useState(0);
 
   if (!child) {
     return (
       <SafeAreaView style={styles.safe}>
         <Text style={styles.errorText}>Criança não encontrada.</Text>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backLink}>← Voltar</Text>
+          <Text style={styles.backLink}>{'<'} Voltar</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -49,23 +44,37 @@ export const ChildLoginScreen: React.FC<ParentScreenProps<'ChildLogin'>> = ({
     if (loading) return;
     setLoading(true);
     setError('');
+
     try {
-      // Verify PIN against THIS specific child only — no global search, no collision
-      const correct = await verifyPin(enteredPin, child.pin_hash);
-      if (!correct) {
-        setError('PIN incorreto. Tente de novo! 🔒');
+      if (!parent?.id) {
+        setError('Sessão inválida. Entre novamente como responsável.');
         resetPin();
         return;
       }
 
-      // Update last_login_at
-      await supabase
-        .from('child_accounts')
-        .update({ last_login_at: new Date().toISOString() })
-        .eq('id', child.id);
+      const { data: matchedChildData, error: dbError } = await supabase.rpc(
+        'authenticate_child_pin',
+        {
+          p_parent_id: parent.id,
+          p_pin: enteredPin,
+        }
+      );
 
-      // Switch to child mode — RootNavigator will render ChildNavigator
-      setChild(child);
+      if (dbError) throw dbError;
+      if (!matchedChildData) {
+        setError('PIN incorreto. Tente de novo!');
+        resetPin();
+        return;
+      }
+
+      const matchedChild = matchedChildData as ChildAccount;
+      if (matchedChild.id !== child.id) {
+        setError('PIN incorreto. Tente de novo!');
+        resetPin();
+        return;
+      }
+
+      setChild(matchedChild);
     } catch {
       setError('Erro ao entrar. Tente novamente.');
       resetPin();
@@ -77,44 +86,34 @@ export const ChildLoginScreen: React.FC<ParentScreenProps<'ChildLogin'>> = ({
   return (
     <SafeAreaView style={styles.safe}>
       <LinearGradient colors={BlueyGradients.blueVertical} style={styles.gradient}>
-        {/* Back button */}
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>← Voltar</Text>
+          <Text style={styles.backText}>{'<'} Voltar</Text>
         </TouchableOpacity>
 
         <View style={styles.content}>
-          {/* Child avatar */}
           <View style={[styles.avatar, { borderColor: child.color_theme ?? BlueyColors.blueyMain }]}>
             <Text style={styles.avatarEmoji}>{child.icon_emoji}</Text>
           </View>
 
-          <Text style={styles.title}>Olá, {child.name}! 👋</Text>
+          <Text style={styles.title}>Ola, {child.name}!</Text>
           <Text style={styles.subtitle}>Digite seu PIN para entrar</Text>
 
-          {/* PIN input — resets via key when wrong PIN */}
           <View style={styles.pinWrapper}>
-            <PinInput
-              key={pinKey}
-              onComplete={handlePinComplete}
-              error={!!error}
-            />
+            <PinInput key={pinKey} onComplete={handlePinComplete} error={!!error} />
           </View>
 
-          {/* Error */}
           {error ? (
             <View style={styles.errorBanner}>
               <Text style={styles.errorMsg}>{error}</Text>
             </View>
           ) : null}
 
-          {/* Loading */}
           {loading && <LoadingSpinner message="Verificando..." />}
 
-          {/* Hint for parents */}
           <View style={styles.hintBox}>
             <Text style={styles.hintText}>
-              🔒 O PIN foi definido pelo responsável. Em caso de dúvida, acesse{' '}
-              <Text style={styles.hintHighlight}>FILHOS → ⚙️ → Alterar PIN</Text>.
+              O PIN foi definido pelo responsável. Em caso de dúvida, acesse{' '}
+              <Text style={styles.hintHighlight}>FILHOS {'>'} Configurações {'>'} Alterar PIN</Text>.
             </Text>
           </View>
         </View>

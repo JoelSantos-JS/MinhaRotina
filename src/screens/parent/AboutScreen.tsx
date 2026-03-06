@@ -7,12 +7,36 @@ import { Typography } from '../../theme/typography';
 import type { ParentScreenProps } from '../../types/navigation';
 
 const FEATURES = [
-  { emoji: '📋', title: 'Rotinas Visuais', desc: 'Crie rotinas personalizadas com emojis e ícones que as crianças adoram.' },
-  { emoji: '🧩', title: 'Para Crianças Autistas', desc: 'Desenvolvido especialmente para crianças nos níveis 1 e 2 do espectro autista.' },
-  { emoji: '🔑', title: 'PIN de Acesso', desc: 'Cada criança tem seu próprio PIN para acessar o app de forma independente.' },
-  { emoji: '🎉', title: 'Celebrações', desc: 'Animações motivadoras ao completar cada tarefa e rotina.' },
-  { emoji: '💡', title: 'Estratégias Sensoriais', desc: 'Dicas práticas para lidar com desafios sensoriais comuns.' },
-  { emoji: '🛡️', title: 'Privacidade', desc: 'Os dados ficam seguros no dispositivo e na nuvem criptografada.' },
+  {
+    emoji: '\u{1F4CB}',
+    title: 'Rotinas Visuais',
+    desc: 'Crie rotinas personalizadas com emojis e ícones que as crianças adoram.',
+  },
+  {
+    emoji: '\u{1F9E9}',
+    title: 'Para Crianças Autistas',
+    desc: 'Desenvolvido especialmente para crianças nos níveis 1 e 2 do espectro autista.',
+  },
+  {
+    emoji: '\u{1F511}',
+    title: 'PIN de Acesso',
+    desc: 'Cada criança tem seu próprio PIN para acessar o app de forma independente.',
+  },
+  {
+    emoji: '\u{1F389}',
+    title: 'Celebrações',
+    desc: 'Animações motivadoras ao completar cada tarefa e rotina.',
+  },
+  {
+    emoji: '\u{1F4A1}',
+    title: 'Estratégias Sensoriais',
+    desc: 'Dicas práticas para lidar com desafios sensoriais comuns.',
+  },
+  {
+    emoji: '\u{1F6E1}\uFE0F',
+    title: 'Privacidade',
+    desc: 'Os dados ficam seguros no dispositivo e na nuvem criptografada.',
+  },
 ];
 
 export const AboutScreen: React.FC<ParentScreenProps<'About'>> = ({ navigation }) => {
@@ -21,16 +45,15 @@ export const AboutScreen: React.FC<ParentScreenProps<'About'>> = ({ navigation }
       <LinearGradient colors={BlueyGradients.blueVertical} style={styles.gradient}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={styles.backText}>← Voltar</Text>
+            <Text style={styles.backText}>{'< Voltar'}</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Sobre o App</Text>
           <View style={{ width: 60 }} />
         </View>
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          {/* App identity */}
           <View style={styles.heroCard}>
-            <Text style={styles.heroEmoji}>🌈</Text>
+            <Text style={styles.heroEmoji}>{'\u{1F308}'}</Text>
             <Text style={styles.appName}>Minha Rotina</Text>
             <Text style={styles.version}>Versão 1.0.0</Text>
             <Text style={styles.tagline}>
@@ -38,7 +61,6 @@ export const AboutScreen: React.FC<ParentScreenProps<'About'>> = ({ navigation }
             </Text>
           </View>
 
-          {/* Mission */}
           <View style={styles.missionCard}>
             <Text style={styles.missionTitle}>Nossa Missão</Text>
             <Text style={styles.missionText}>
@@ -48,7 +70,6 @@ export const AboutScreen: React.FC<ParentScreenProps<'About'>> = ({ navigation }
             </Text>
           </View>
 
-          {/* Features */}
           <Text style={styles.sectionTitle}>Funcionalidades</Text>
           {FEATURES.map((f, i) => (
             <View key={i} style={styles.featureRow}>
@@ -60,16 +81,15 @@ export const AboutScreen: React.FC<ParentScreenProps<'About'>> = ({ navigation }
             </View>
           ))}
 
-          {/* Credits */}
           <View style={styles.creditsCard}>
-            <Text style={styles.creditsTitle}>Desenvolvido com ❤️</Text>
+            <Text style={styles.creditsTitle}>Desenvolvido com {'\u2764\uFE0F'}</Text>
             <Text style={styles.creditsText}>
-              Este aplicativo foi desenvolvido com carinho por pais e profissionais que acreditam
+              Este aplicativo foi desenvolvido com carinho para pais e profissionais que acreditam
               que toda criança merece ter uma rotina estruturada e acolhedora.
             </Text>
           </View>
 
-          <Text style={styles.copyright}>© 2024 Minha Rotina. Todos os direitos reservados.</Text>
+          <Text style={styles.copyright}>(c) 2026 Minha Rotina. Todos os direitos reservados.</Text>
         </ScrollView>
       </LinearGradient>
     </SafeAreaView>

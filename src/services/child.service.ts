@@ -1,5 +1,5 @@
 import { supabase } from '../config/supabase';
-import { hashPin, verifyPin, generateRandomPin } from '../utils/pinUtils';
+import { generateRandomPin } from '../utils/pinUtils';
 import type { ChildAccount, SensoryProfile, VisualSupportType } from '../types/models';
 
 export interface CreateChildData {
@@ -22,6 +22,31 @@ function assertValidPin(pin: string) {
   if (!PIN_PATTERN.test(pin)) {
     throw new Error(INVALID_PIN_MESSAGE);
   }
+}
+
+async function hashPinSecure(pin: string): Promise<string> {
+  const { data, error } = await supabase.rpc('hash_pin_secure', { p_pin: pin });
+  if (error) throw error;
+
+  if (typeof data !== 'string' || !data.trim()) {
+    throw new Error('Falha ao gerar hash seguro do PIN.');
+  }
+
+  return data;
+}
+
+async function isSiblingPinInUseRpc(
+  parentId: string,
+  pin: string,
+  excludeChildId?: string
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('is_sibling_pin_in_use', {
+    p_parent_id: parentId,
+    p_pin: pin,
+    p_exclude_child_id: excludeChildId ?? null,
+  });
+  if (error) throw error;
+  return data === true;
 }
 
 function mapWriteError(error: any): Error {
@@ -67,14 +92,7 @@ export const childService = {
     pin: string,
     excludeChildId?: string
   ): Promise<boolean> {
-    const siblings = await childService.getChildrenByParent(parentId);
-
-    for (const sibling of siblings) {
-      if (excludeChildId && sibling.id === excludeChildId) continue;
-      if (await verifyPin(pin, sibling.pin_hash)) return true;
-    }
-
-    return false;
+    return isSiblingPinInUseRpc(parentId, pin, excludeChildId);
   },
 
   async createChild(parentId: string, childData: CreateChildData): Promise<ChildAccount> {
@@ -85,14 +103,13 @@ export const childService = {
       throw new Error(DUPLICATE_PIN_MESSAGE);
     }
 
-    const pin_hash = await hashPin(childData.pin);
+    const pin_hash = await hashPinSecure(childData.pin);
 
     const { data, error } = await supabase
       .from('child_accounts')
       .insert({
         name: childData.name,
         age: childData.age,
-        access_pin: childData.pin,
         pin_hash,
         color_theme: childData.color_theme ?? '#88CAFC',
         icon_emoji: childData.icon_emoji ?? '🌸',
@@ -105,7 +122,7 @@ export const childService = {
       .single();
 
     if (error) throw mapWriteError(error);
-    return data as ChildAccount;
+    return { ...(data as ChildAccount), access_pin: childData.pin };
   },
 
   async updateChild(
@@ -125,8 +142,7 @@ export const childService = {
         }
       }
 
-      payload.pin_hash = await hashPin(updates.pin);
-      payload.access_pin = updates.pin;
+      payload.pin_hash = await hashPinSecure(updates.pin);
       delete payload.pin;
     }
 
@@ -138,7 +154,14 @@ export const childService = {
       .single();
 
     if (error) throw mapWriteError(error);
-    return data as ChildAccount;
+    const updated = data as ChildAccount;
+    if (typeof updates.pin === 'string') {
+      return {
+        ...updated,
+        access_pin: updates.pin,
+      };
+    }
+    return updated;
   },
 
   async regeneratePin(
@@ -155,4 +178,3 @@ export const childService = {
     if (error) throw error;
   },
 };
-

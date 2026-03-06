@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,8 @@ import { useAuthStore } from '../../stores/authStore';
 import { useRoutineStore } from '../../stores/routineStore';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
-import { feedbackService } from '../../services/feedbackService';
+import { onCelebrationShown } from '../../utils/taskEventHandlers';
+import { rewardsService, type Reward } from '../../services/rewardsService';
 import type { ChildScreenProps } from '../../types/navigation';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -100,20 +101,49 @@ export const CelebrationScreen: React.FC<ChildScreenProps<'Celebration'>> = ({
   const child = useAuthStore((s) => s.child);
   const resetProgress = useRoutineStore((s) => s.resetProgress);
 
+  const [starsTotal, setStarsTotal] = useState(0);
+  const [nextReward, setNextReward] = useState<Reward | null>(null);
+  const [rewardUnlocked, setRewardUnlocked] = useState(false);
+
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const btnScale = useRef(new Animated.Value(1)).current;
   const particles = useRef<ConfettiParticle[]>(buildParticles()).current;
+  const isActiveRef = useRef(true);
+  const runningAnimationsRef = useRef<Animated.CompositeAnimation[]>([]);
+  const spinLoopRef = useRef<Animated.CompositeAnimation | null>(null);
   const message = useRef(
     CELEBRATION_MESSAGES[Math.floor(Math.random() * CELEBRATION_MESSAGES.length)]
   ).current;
 
   useEffect(() => {
-    // Haptic pattern for routine complete
-    feedbackService.triggerRoutineComplete(child?.id ?? '');
+    isActiveRef.current = true;
+
+    // Toca a tríade de celebração ao entrar na tela
+    onCelebrationShown(child?.id ?? '');
+
+    // Adiciona 1 estrela pela rotina concluída e carrega próxima recompensa
+    if (child?.id) {
+      (async () => {
+        try {
+          const newTotal = await rewardsService.addStar(child.id);
+          if (!isActiveRef.current) return;
+
+          setStarsTotal(newTotal);
+
+          const next = await rewardsService.getNextReward(child.id);
+          if (!isActiveRef.current) return;
+
+          setNextReward(next);
+          setRewardUnlocked(!!next && newTotal >= next.starsRequired);
+        } catch {
+          // Falha de rewards nao deve bloquear celebracao.
+        }
+      })();
+    }
 
     // Trophy bounce
-    Animated.sequence([
+    const trophyAnim = Animated.sequence([
       Animated.spring(scaleAnim, {
         toValue: 1.2,
         useNativeDriver: true,
@@ -126,24 +156,28 @@ export const CelebrationScreen: React.FC<ChildScreenProps<'Celebration'>> = ({
         tension: 40,
         friction: 5,
       }),
-    ]).start();
+    ]);
+    runningAnimationsRef.current.push(trophyAnim);
+    trophyAnim.start();
 
     // Spinning star loop
-    Animated.loop(
+    spinLoopRef.current = Animated.loop(
       Animated.timing(rotateAnim, {
         toValue: 1,
         duration: 3000,
         useNativeDriver: true,
       })
-    ).start();
+    );
+    spinLoopRef.current.start();
 
     // Confetti — each particle loops independently
     particles.forEach((p) => {
       const runParticle = () => {
+        if (!isActiveRef.current) return;
         p.fallAnim.setValue(0);
         p.swayAnim.setValue(0);
         p.rotateAnim.setValue(0);
-        Animated.sequence([
+        const particleAnim = Animated.sequence([
           Animated.delay(p.delay),
           Animated.parallel([
             Animated.timing(p.fallAnim, {
@@ -162,13 +196,27 @@ export const CelebrationScreen: React.FC<ChildScreenProps<'Celebration'>> = ({
               useNativeDriver: true,
             }),
           ]),
-        ]).start(({ finished }) => {
-          if (finished) runParticle();
+        ]);
+        runningAnimationsRef.current.push(particleAnim);
+        particleAnim.start(({ finished }) => {
+          runningAnimationsRef.current = runningAnimationsRef.current.filter((a) => a !== particleAnim);
+          if (finished && isActiveRef.current) runParticle();
         });
       };
       runParticle();
     });
-  }, []);
+    return () => {
+      isActiveRef.current = false;
+      spinLoopRef.current?.stop();
+      runningAnimationsRef.current.forEach((animation) => animation.stop());
+      runningAnimationsRef.current = [];
+      particles.forEach((p) => {
+        p.fallAnim.stopAnimation();
+        p.swayAnim.stopAnimation();
+        p.rotateAnim.stopAnimation();
+      });
+    };
+  }, [child?.id, particles, rotateAnim, scaleAnim]);
 
   const spinRotate = rotateAnim.interpolate({
     inputRange: [0, 1],
@@ -216,6 +264,22 @@ export const CelebrationScreen: React.FC<ChildScreenProps<'Celebration'>> = ({
           <Animated.Text style={[styles.spinStar, { transform: [{ rotate: spinRotate }] }]}>
             ⭐
           </Animated.Text>
+
+          {/* Stars earned */}
+          <View style={styles.starsSection}>
+            <Text style={styles.starsEarned}>⭐ +1 estrela!</Text>
+            <Text style={styles.starsTotal}>Total: {starsTotal} ⭐</Text>
+            {nextReward && !rewardUnlocked && (
+              <Text style={styles.nextRewardText}>
+                {starsTotal}/{nextReward.starsRequired} ⭐ para: {nextReward.emoji} {nextReward.title}
+              </Text>
+            )}
+            {rewardUnlocked && nextReward && (
+              <Text style={styles.rewardUnlockedText}>
+                🎁 Recompensa desbloqueada: {nextReward.emoji} {nextReward.title}!
+              </Text>
+            )}
+          </View>
 
           {/* Motivational note */}
           <View style={styles.noteCard}>
@@ -282,6 +346,33 @@ const styles = StyleSheet.create({
   spinStar: {
     fontSize: 48,
     marginBottom: 24,
+  },
+  starsSection: {
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 4,
+  },
+  starsEarned: {
+    ...Typography.titleLarge,
+    color: '#EDCC6F',
+    fontFamily: 'Nunito_900Black',
+  },
+  starsTotal: {
+    ...Typography.bodyMedium,
+    color: 'rgba(255,255,255,0.9)',
+  },
+  nextRewardText: {
+    ...Typography.bodySmall,
+    color: 'rgba(255,255,255,0.75)',
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  rewardUnlockedText: {
+    ...Typography.bodyMedium,
+    color: '#A8C98E',
+    fontFamily: 'Nunito_800ExtraBold',
+    textAlign: 'center',
+    marginTop: 4,
   },
   noteCard: {
     backgroundColor: 'rgba(255,255,255,0.3)',

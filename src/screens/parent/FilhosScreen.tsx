@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AccessCodesModal } from '../../components/modals/AccessCodesModal';
 import { childService } from '../../services/child.service';
+import { rewardsService } from '../../services/rewardsService';
 import type { ChildAccount } from '../../types/models';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -30,6 +31,7 @@ export const FilhosScreen: React.FC = () => {
   const parent = useAuthStore((s) => s.parent);
   const { children, isLoading, fetchChildren, updateChild } = useChildStore();
   const [codesChild, setCodesChild] = useState<ChildAccount | null>(null);
+  const [starsMap, setStarsMap] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (parent?.id) {
@@ -37,13 +39,20 @@ export const FilhosScreen: React.FC = () => {
     }
   }, [parent?.id]);
 
+  useEffect(() => {
+    if (!children.length) return;
+    Promise.all(
+      children.map(async (c) => [c.id, await rewardsService.getStars(c.id)] as const)
+    ).then((entries) => setStarsMap(Object.fromEntries(entries)));
+  }, [children]);
+
   const handleRegeneratePin = async () => {
     if (!codesChild) return;
     try {
-      const { child: updated } = await childService.regeneratePin(codesChild.id, parent?.id);
+      const { child: updated, newPin } = await childService.regeneratePin(codesChild.id, parent?.id);
       updateChild(updated);
       setCodesChild(updated);
-      Alert.alert('✅ Novo PIN gerado!', `Novo PIN de ${updated.name}: ${updated.access_pin}\n\nAnote antes de fechar!`);
+      Alert.alert('Novo PIN gerado!', `Novo PIN de ${updated.name}: ${newPin}\n\nAnote antes de fechar!`);
     } catch (err: any) {
       throw err;
     }
@@ -76,7 +85,7 @@ export const FilhosScreen: React.FC = () => {
             <LoadingSpinner message="Carregando..." />
           ) : children.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyEmoji}>👶</Text>
+              <Text style={styles.emptyEmoji}>:-)</Text>
               <Text style={styles.emptyTitle}>Nenhuma criança ainda</Text>
               <Text style={styles.emptyText}>
                 Adicione uma criança para começar a criar rotinas personalizadas para ela!
@@ -112,25 +121,43 @@ export const FilhosScreen: React.FC = () => {
                         navigation.navigate('ChildLogin', { childId: child.id })
                       }
                     >
-                      <Text style={styles.childModeBtnEmoji}>{child.icon_emoji}</Text>
-                      <Text style={styles.childModeBtnText}>
+                      <Text style={styles.childModeBtnText} numberOfLines={1}>
                         Entrar como {child.name.split(' ')[0]}
                       </Text>
                       <Text style={styles.childModeBtnArrow}>›</Text>
+                    </TouchableOpacity>
+                    {/* Stars / Rewards button */}
+                    <TouchableOpacity
+                      style={styles.codesBtn}
+                      onPress={() =>
+                        navigation.navigate('Rewards', { childId: child.id, childName: child.name })
+                      }
+                    >
+                      <Text style={styles.codesBtnText}>⭐</Text>
+                      <Text style={styles.starsBadgeText}>{starsMap[child.id] ?? 0}</Text>
+                    </TouchableOpacity>
+                    {/* Progress button */}
+                    <TouchableOpacity
+                      style={styles.codesBtn}
+                      onPress={() =>
+                        navigation.navigate('Progress', { childId: child.id })
+                      }
+                    >
+                      <Text style={styles.codesBtnText}>📊</Text>
                     </TouchableOpacity>
                     {/* Access codes button */}
                     <TouchableOpacity
                       style={styles.codesBtn}
                       onPress={() => setCodesChild(child)}
                     >
-                      <Text style={styles.codesBtnText}>🔑</Text>
+                      <Text style={styles.codesBtnText}>PIN</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
               ))}
 
               <View style={styles.infoBox}>
-                <Text style={styles.infoEmoji}>💡</Text>
+                <Text style={styles.infoEmoji}>ℹ️</Text>
                 <Text style={styles.infoText}>
                   Toque no card para gerenciar rotinas. Use{' '}
                   <Text style={{ fontWeight: '700' }}>"Entrar como..."</Text>
@@ -232,8 +259,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 2,
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    gap: 10,
+    paddingHorizontal: 12,
+    gap: 6,
   },
   codesBtn: {
     width: 48,
@@ -245,16 +272,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   codesBtnText: { fontSize: 22 },
-  childModeBtnEmoji: { fontSize: 22 },
+  starsBadgeText: { ...Typography.labelSmall, color: BlueyColors.textPrimary, fontSize: 11 },
   childModeBtnText: {
     ...Typography.labelMedium,
     color: BlueyColors.blueyDark,
     flex: 1,
   },
   childModeBtnArrow: {
-    ...Typography.titleLarge,
     color: BlueyColors.textPlaceholder,
-    fontSize: 22,
+    fontSize: 20,
+    lineHeight: 24,
   },
   infoBox: {
     flexDirection: 'row',
@@ -274,3 +301,4 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+

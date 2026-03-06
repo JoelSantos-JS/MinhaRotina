@@ -5,9 +5,11 @@ interface AuthState {
   parent: ParentAccount | null;
   child: ChildAccount | null;
   isLoading: boolean;
+  showOnboarding: boolean;
   setParent: (parent: ParentAccount | null) => void;
   setChild: (child: ChildAccount | null) => void;
   setLoading: (loading: boolean) => void;
+  setShowOnboarding: (show: boolean) => void;
   logout: () => void;
 }
 
@@ -15,8 +17,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   parent: null,
   child: null,
   isLoading: true,
+  showOnboarding: false,
   setParent: (parent) => set({ parent, child: null }),
   setChild: (child) => set({ child }),
   setLoading: (isLoading) => set({ isLoading }),
-  logout: () => set({ parent: null, child: null }),
+  setShowOnboarding: (showOnboarding) => set({ showOnboarding }),
+  logout: () => set({ parent: null, child: null, showOnboarding: false }),
 }));

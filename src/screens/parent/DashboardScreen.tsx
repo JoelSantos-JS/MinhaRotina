@@ -121,23 +121,37 @@ export const DashboardScreen: React.FC = () => {
             <>
               <Text style={styles.sectionTitle}>Acesso rápido</Text>
               {children.map((child) => (
-                <TouchableOpacity
+                <View
                   key={child.id}
                   style={[
                     styles.childRow,
                     { borderLeftColor: child.color_theme ?? BlueyColors.blueyMain },
                   ]}
-                  onPress={() =>
-                    navigation.navigate('ManageRoutines', { childId: child.id })
-                  }
                 >
-                  <Text style={styles.childEmoji}>{child.icon_emoji}</Text>
-                  <View style={styles.childInfo}>
-                    <Text style={styles.childName}>{child.name}</Text>
-                    <Text style={styles.childAge}>{child.age} anos · Gerenciar rotinas</Text>
-                  </View>
-                  <Text style={styles.childArrow}>›</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.childRowMain}
+                    onPress={() =>
+                      navigation.navigate('ManageRoutines', { childId: child.id })
+                    }
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.childEmoji}>{child.icon_emoji}</Text>
+                    <View style={styles.childInfo}>
+                      <Text style={styles.childName}>{child.name}</Text>
+                      <Text style={styles.childAge}>{child.age} anos · Gerenciar rotinas</Text>
+                    </View>
+                    <Text style={styles.childArrow}>›</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.progressBtn}
+                    onPress={() =>
+                      navigation.navigate('Progress', { childId: child.id })
+                    }
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.progressBtnEmoji}>📊</Text>
+                  </TouchableOpacity>
+                </View>
               ))}
             </>
           )}
@@ -275,10 +289,29 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: BlueyColors.borderLight,
     borderLeftWidth: 5,
-    padding: 14,
+    paddingVertical: 14,
+    paddingLeft: 14,
+    paddingRight: 10,
     marginBottom: 10,
+  },
+  childRowMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
     gap: 12,
   },
+  progressBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: BlueyColors.backgroundBlue,
+    borderWidth: 1.5,
+    borderColor: BlueyColors.borderMedium,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  progressBtnEmoji: { fontSize: 18 },
   childEmoji: { fontSize: 32 },
   childInfo: { flex: 1 },
   childName: {

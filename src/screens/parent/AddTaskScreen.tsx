@@ -27,13 +27,15 @@ import { Typography } from '../../theme/typography';
 import { TASK_EMOJIS, SENSORY_CATEGORIES } from '../../config/constants';
 import { detectSensoryCategory } from '../../utils/sensoryDetection';
 import { validateTaskForm, formatTimePreset, TIME_PRESETS, TASK_FORM_ERROR_MESSAGES } from '../../utils/taskFormUtils';
-import type { RoutinesConfig, Task } from '../../types/models';
+import { useParentSettingsStore } from '../../stores/parentSettingsStore';
+import type { RoutinesConfig, Task, TaskStep } from '../../types/models';
 import type { ParentScreenProps } from '../../types/navigation';
 
 export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigation, route }) => {
   const { routineId, childId } = route.params;
   const { routines, tasks, isLoading, fetchTasks, addTask, updateTask, removeTask } = useRoutineStore();
   const { children } = useChildStore();
+  const { settings } = useParentSettingsStore();
   const childName = children.find((c) => c.id === childId)?.name ?? '';
   const currentRoutineType = routines.find((r) => r.id === routineId)?.type;
 
@@ -57,6 +59,8 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [description, setDescription] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
+  const [instructionMode, setInstructionMode] = useState<'text' | 'steps'>('text');
+  const [steps, setSteps] = useState<TaskStep[]>([]);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [selectedRoutines, setSelectedRoutines] = useState<RoutinesConfig>({ morning: false, afternoon: false, night: false });
   const [saving, setSaving] = useState(false);
@@ -87,6 +91,10 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
 
   // Auto-detect sensory keywords as the user types
   useEffect(() => {
+    if (!settings.autoSensoryDetectionEnabled) {
+      setAlertVisible(false);
+      return;
+    }
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     if (hideTimer.current) clearTimeout(hideTimer.current);
 
@@ -112,7 +120,7 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
       if (hideTimer.current) clearTimeout(hideTimer.current);
     };
-  }, [taskName]);
+  }, [taskName, settings.autoSensoryDetectionEnabled]);
 
   const handleSensoryToggle = (val: boolean) => {
     setHasSensory(val);
@@ -142,6 +150,13 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
     setDescription(task.description ?? '');
     setVideoUrl(task.video_url ?? '');
     setIconTab(task.photo_url ? 'photo' : 'emoji');
+    if (task.steps && task.steps.length > 0) {
+      setInstructionMode('steps');
+      setSteps(task.steps);
+    } else {
+      setInstructionMode('text');
+      setSteps([]);
+    }
     setSelectedRoutines(task.routines_config ?? defaultRoutines());
     setIsDirty(false);
     setShowForm(true);
@@ -202,7 +217,8 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
           hasSensoryIssues: hasSensory,
           sensoryCategory: hasSensory ? sensoryCategory : null,
           photoLocalUri: photoChanged ? (photoUri ?? null) : undefined,
-          description: description.trim() || null,
+          description: instructionMode === 'text' ? description.trim() || null : null,
+          steps: instructionMode === 'steps' ? (steps.length > 0 ? steps : null) : null,
           videoLocalUri: undefined, // video_url is set directly below
           routinesConfig: selectedRoutines,
         });
@@ -224,7 +240,8 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
             hasSensoryIssues: hasSensory,
             sensoryCategory: hasSensory ? sensoryCategory : null,
             photoLocalUri: photoUri ?? undefined,
-            description: description.trim() || undefined,
+            description: instructionMode === 'text' ? description.trim() || undefined : undefined,
+            steps: instructionMode === 'steps' && steps.length > 0 ? steps : undefined,
             routinesConfig: selectedRoutines,
           }
         );
@@ -244,7 +261,7 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
       Alert.alert(
         isStorageError ? 'Erro ao enviar foto' : 'Erro',
         isStorageError
-          ? `A tarefa foi criada, mas a foto não pôde ser salva.\n\nVerifique se o bucket "task-photos" existe e é público no Supabase.\n\nDetalhe: ${msg}`
+          ? `A tarefa foi criada, mas a foto não pôde ser salva.\n\nVerifique se o bucket "task-photos" existe e se as policies permitem upload do usuário autenticado.\n\nDetalhe: ${msg}`
           : msg
       );
     } finally {
@@ -263,6 +280,8 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
     setPhotoUri(null);
     setDescription('');
     setVideoUrl('');
+    setInstructionMode('text');
+    setSteps([]);
     setEditingTask(null);
     setSelectedRoutines({ morning: false, afternoon: false, night: false });
     setIconTab('emoji');
@@ -423,7 +442,7 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
                   />
 
                   {/* Educational alert — inline, right below task name input */}
-                  {alertVisible && detectedCategory && (
+                  {settings.educationalAlertsEnabled && alertVisible && detectedCategory && (
                     <EducationalAlert
                       category={detectedCategory}
                       onViewStrategies={() => {
@@ -518,21 +537,79 @@ export const AddTaskScreen: React.FC<ParentScreenProps<'AddTask'>> = ({ navigati
                     </>
                   )}
 
-                  {/* Description / instructions */}
+                  {/* Instruções — toggle texto livre vs passo a passo */}
                   <Text style={styles.fieldLabel}>
-                    {'📝 Instru\u00E7\u00F5es para a crian\u00E7a '}
+                    {'📋 Instru\u00E7\u00F5es para a crian\u00E7a '}
                     <Text style={styles.optionalLabel}>(opcional)</Text>
                   </Text>
-                  <TextInput
-                    value={description}
-                    onChangeText={setDescription}
-                    placeholder={'Ex: Coloque pasta do tamanho de uma ervilha. Escove por 2 minutos.'}
-                    placeholderTextColor={BlueyColors.textPlaceholder}
-                    style={[styles.input, styles.inputMultiline]}
-                    multiline
-                    numberOfLines={3}
-                    textAlignVertical="top"
-                  />
+                  <View style={styles.iconTabRow}>
+                    <TouchableOpacity
+                      style={[styles.iconTab, instructionMode === 'text' && styles.iconTabActive]}
+                      onPress={() => setInstructionMode('text')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.iconTabText, instructionMode === 'text' && styles.iconTabTextActive]}>
+                        {'📝 Texto livre'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.iconTab, instructionMode === 'steps' && styles.iconTabActive]}
+                      onPress={() => setInstructionMode('steps')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.iconTabText, instructionMode === 'steps' && styles.iconTabTextActive]}>
+                        {'✅ Passo a passo'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {instructionMode === 'text' && (
+                    <TextInput
+                      value={description}
+                      onChangeText={setDescription}
+                      placeholder={'Ex: Coloque pasta do tamanho de uma ervilha. Escove por 2 minutos.'}
+                      placeholderTextColor={BlueyColors.textPlaceholder}
+                      style={[styles.input, styles.inputMultiline]}
+                      multiline
+                      numberOfLines={3}
+                      textAlignVertical="top"
+                    />
+                  )}
+
+                  {instructionMode === 'steps' && (
+                    <View style={styles.stepsEditor}>
+                      {steps.map((step, index) => (
+                        <View key={step.id} style={styles.stepEditorRow}>
+                          <Text style={styles.stepIndex}>{index + 1}.</Text>
+                          <TextInput
+                            style={styles.stepInput}
+                            value={step.text}
+                            placeholder={`Passo ${index + 1}...`}
+                            placeholderTextColor={BlueyColors.textPlaceholder}
+                            onChangeText={(t) =>
+                              setSteps(steps.map((s) => (s.id === step.id ? { ...s, text: t } : s)))
+                            }
+                          />
+                          <TouchableOpacity
+                            onPress={() => setSteps(steps.filter((s) => s.id !== step.id))}
+                            style={styles.stepDeleteBtn}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.stepDeleteText}>{'🗑️'}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                      <TouchableOpacity
+                        style={styles.addStepBtn}
+                        onPress={() =>
+                          setSteps([...steps, { id: String(Date.now()), text: '' }])
+                        }
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.addStepText}>{'➕ Adicionar passo'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
 
                   {/* Video URL */}
                   <Text style={styles.fieldLabel}>
@@ -827,6 +904,50 @@ const styles = StyleSheet.create({
   inputMultiline: {
     height: 88,
     paddingTop: 12,
+  },
+  // ── Steps editor ──
+  stepsEditor: {
+    gap: 8,
+    marginBottom: 16,
+  },
+  stepEditorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stepIndex: {
+    ...Typography.titleMedium,
+    color: BlueyColors.textSecondary,
+    width: 24,
+    textAlign: 'right',
+  },
+  stepInput: {
+    flex: 1,
+    height: 44,
+    borderWidth: 2,
+    borderColor: BlueyColors.borderMedium,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    ...Typography.bodyMedium,
+    color: BlueyColors.textPrimary,
+  },
+  stepDeleteBtn: {
+    padding: 4,
+  },
+  stepDeleteText: {
+    fontSize: 18,
+  },
+  addStepBtn: {
+    borderWidth: 2,
+    borderColor: BlueyColors.blueyMain,
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  addStepText: {
+    ...Typography.labelMedium,
+    color: BlueyColors.blueyDark,
   },
   videoTestBtn: {
     backgroundColor: BlueyColors.backgroundBlue,

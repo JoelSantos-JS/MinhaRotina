@@ -15,6 +15,7 @@ import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { useChildStore } from '../../stores/childStore';
 import { useRoutineStore } from '../../stores/routineStore';
 import { routineService } from '../../services/routine.service';
+import { routineCalendarService, DAY_LABELS } from '../../services/routineCalendarService';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { ROUTINE_TYPES } from '../../config/constants';
@@ -35,10 +36,17 @@ export const ManageRoutinesScreen: React.FC<ParentScreenProps<'ManageRoutines'>>
   const [newName, setNewName] = useState('');
   const [selectedType, setSelectedType] = useState<Routine['type']>('morning');
   const [creating, setCreating] = useState(false);
+  const [daysMap, setDaysMap] = useState<Record<string, number[]>>({});
 
   useEffect(() => {
     fetchRoutines(childId);
   }, [childId]);
+
+  useEffect(() => {
+    const ids = routines.filter((r) => r.child_id === childId).map((r) => r.id);
+    if (!ids.length) return;
+    routineCalendarService.getDaysForRoutines(ids).then(setDaysMap);
+  }, [routines, childId]);
 
   const handleCreateRoutine = async () => {
     if (!newName.trim()) return;
@@ -82,6 +90,15 @@ export const ManageRoutinesScreen: React.FC<ParentScreenProps<'ManageRoutines'>>
     );
   };
 
+  const toggleDay = async (routineId: string, day: number) => {
+    const current = daysMap[routineId] ?? [];
+    const next = current.includes(day)
+      ? current.filter((d) => d !== day)
+      : [...current, day].sort((a, b) => a - b);
+    await routineCalendarService.setDays(routineId, next);
+    setDaysMap((prev) => ({ ...prev, [routineId]: next }));
+  };
+
   const getTypeInfo = (type: string) =>
     ROUTINE_TYPES.find((r) => r.value === type) ?? ROUTINE_TYPES[0];
 
@@ -119,49 +136,82 @@ export const ManageRoutinesScreen: React.FC<ParentScreenProps<'ManageRoutines'>>
                 .filter((r) => r.child_id === childId)
                 .map((routine) => {
                   const typeInfo = getTypeInfo(routine.type);
+                  const activeDays = daysMap[routine.id] ?? [];
                   return (
-                    <View key={routine.id} style={styles.routineCard}>
-                      <Text style={styles.routineEmoji}>{typeInfo.emoji}</Text>
-                      <View style={styles.routineInfo}>
-                        <Text style={styles.routineName} numberOfLines={1}>{routine.name}</Text>
-                        <Text style={styles.routineType}>{typeInfo.label}</Text>
+                    <View key={routine.id} style={styles.routineWrapper}>
+                      <View style={styles.routineCard}>
+                        <Text style={styles.routineEmoji}>{typeInfo.emoji}</Text>
+                        <View style={styles.routineInfo}>
+                          <Text style={styles.routineName} numberOfLines={1}>{routine.name}</Text>
+                          <Text style={styles.routineType}>{typeInfo.label}</Text>
+                        </View>
+                        <View style={styles.routineActions}>
+                          <TouchableOpacity
+                            onPress={() =>
+                              navigation.navigate('AddTask', {
+                                routineId: routine.id,
+                                childId,
+                              })
+                            }
+                            style={styles.actionBtn}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.actionBtnText}>✏️</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleToggleRoutine(routine)}
+                            style={[
+                              styles.actionBtn,
+                              routine.is_active ? styles.toggleActive : styles.toggleInactive,
+                            ]}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.actionBtnText}>
+                              {routine.is_active ? '✅' : '⏸️'}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleDeleteRoutine(routine)}
+                            style={[styles.actionBtn, styles.deleteBtn]}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.actionBtnText}>🗑️</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                      <View style={styles.routineActions}>
-                        <TouchableOpacity
-                          onPress={() =>
-                            navigation.navigate('AddTask', {
-                              routineId: routine.id,
-                              childId,
-                            })
-                          }
-                          style={styles.actionBtn}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.actionBtnText}>✏️</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handleToggleRoutine(routine)}
-                          style={[
-                            styles.actionBtn,
-                            routine.is_active ? styles.toggleActive : styles.toggleInactive,
-                          ]}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.actionBtnText}>
-                            {routine.is_active ? '✅' : '⏸️'}
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => handleDeleteRoutine(routine)}
-                          style={[styles.actionBtn, styles.deleteBtn]}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.actionBtnText}>🗑️</Text>
-                        </TouchableOpacity>
+                      <View style={styles.daySelectorRow}>
+                        {DAY_LABELS.map((label, index) => {
+                          const active = activeDays.includes(index);
+                          return (
+                            <TouchableOpacity
+                              key={index}
+                              style={[styles.dayPill, active && styles.dayPillActive]}
+                              onPress={() => toggleDay(routine.id, index)}
+                            >
+                              <Text style={[styles.dayPillText, active && styles.dayPillTextActive]}>
+                                {label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
                       </View>
+                      {activeDays.length === 0 && (
+                        <Text style={styles.daySelectorHint}>Disponível todos os dias</Text>
+                      )}
                     </View>
                   );
                 })}
+
+              {/* Templates shortcut */}
+              {!showCreate && (
+                <TouchableOpacity
+                  style={styles.templatesBtn}
+                  onPress={() => navigation.navigate('RoutineTemplates', { childId })}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.templatesBtnText}>📋 Usar um template pronto</Text>
+                </TouchableOpacity>
+              )}
 
               {/* Create routine form */}
               {showCreate ? (
@@ -256,17 +306,53 @@ const styles = StyleSheet.create({
   },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
   emptyText: { ...Typography.bodyMedium, color: BlueyColors.textSecondary },
-  routineCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  routineWrapper: {
+    marginBottom: 16,
     backgroundColor: '#fff',
     borderRadius: 18,
     borderWidth: 2,
     borderColor: BlueyColors.borderMedium,
+    overflow: 'hidden',
+  },
+  routineCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 14,
     paddingHorizontal: 14,
-    marginBottom: 12,
     gap: 10,
+  },
+  daySelectorRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    paddingTop: 2,
+  },
+  dayPill: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BlueyColors.borderMedium,
+    backgroundColor: BlueyColors.backgroundBlue,
+  },
+  dayPillActive: {
+    backgroundColor: BlueyColors.blueyMain,
+    borderColor: BlueyColors.blueyMain,
+  },
+  dayPillText: {
+    ...Typography.labelSmall,
+    color: BlueyColors.textSecondary,
+    fontSize: 11,
+  },
+  dayPillTextActive: { color: '#fff' },
+  daySelectorHint: {
+    ...Typography.bodySmall,
+    color: BlueyColors.textPlaceholder,
+    paddingHorizontal: 14,
+    paddingBottom: 8,
+    fontSize: 11,
   },
   routineEmoji: { fontSize: 30, width: 38, textAlign: 'center' },
   routineInfo: { flex: 1, minWidth: 0 },
@@ -288,6 +374,18 @@ const styles = StyleSheet.create({
   toggleInactive: { backgroundColor: '#FFF3E0', borderColor: '#FFCC80' },
   deleteBtn: { backgroundColor: '#FFF5F5', borderColor: '#FFCDD2' },
   addBtn: { marginTop: 8 },
+  templatesBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: BlueyColors.borderMedium,
+    paddingVertical: 13,
+    marginBottom: 10,
+  },
+  templatesBtnText: { ...Typography.titleMedium, color: BlueyColors.blueyDark },
   createForm: {
     backgroundColor: '#fff',
     borderRadius: 20,

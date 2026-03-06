@@ -17,8 +17,8 @@ export interface ChildAccount {
   name: string;
   age: number;
   photo_url?: string | null;
-  access_pin: string;
-  pin_hash: string;
+  access_pin?: string | null;
+  pin_hash?: string;
   qr_code_hash?: string | null;
   color_theme: string;
   icon_emoji: string;
@@ -53,6 +53,12 @@ export interface RoutinesConfig {
   night: boolean;
 }
 
+/** Uma etapa de tarefa no modo passo a passo */
+export interface TaskStep {
+  id: string;   // gerado no cliente (String(Date.now()))
+  text: string;
+}
+
 export interface Task {
   id: string;
   routine_id: string;
@@ -65,6 +71,7 @@ export interface Task {
   photo_url?: string | null;
   description?: string | null;
   video_url?: string | null;
+  steps?: TaskStep[] | null;
   routines_config?: RoutinesConfig | null;
   created_at: string;
   updated_at: string;
@@ -80,6 +87,11 @@ export interface TaskProgress {
   took_minutes?: number | null;
   mood?: string | null;
   note?: string | null;
+}
+
+export interface TaskProgressWithRelations extends TaskProgress {
+  tasks?: { name: string; icon_emoji: string } | null;
+  routines?: { name: string } | null;
 }
 
 export interface EducationalStrategy {

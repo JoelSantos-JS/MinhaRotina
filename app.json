@@ -3,6 +3,7 @@
     "name": "MinhaR",
     "slug": "MinhaR",
     "version": "1.0.0",
+    "scheme": "minhar",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,14 +14,21 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.minharotina.app",
+      "buildNumber": "1"
     },
     "android": {
+      "package": "com.minharotina.app",
+      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -32,7 +40,14 @@
         {
           "locationWhenInUsePermission": "Permita o acesso a localizacao para buscar profissionais proximos."
         }
-      ]
-    ]
+      ],
+      "expo-secure-store"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7ef0d6da-4d2b-4afd-8dcb-00d3a0ef97cd"
+      }
+    },
+    "owner": "letoxy"
   }
 }

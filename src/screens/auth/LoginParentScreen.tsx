@@ -14,7 +14,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlueyButton } from '../../components/ui/BlueyButton';
 import { BlueyInput } from '../../components/ui/BlueyInput';
 import { authService } from '../../services/auth.service';
+import { onboardingService } from '../../services/onboardingService';
 import { useAuthStore } from '../../stores/authStore';
+import { useParentSettingsStore } from '../../stores/parentSettingsStore';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import type { AuthScreenProps } from '../../types/navigation';
@@ -90,6 +92,8 @@ export const LoginParentScreen: React.FC<AuthScreenProps<'LoginParent'>> = ({ na
   const [forgotError, setForgotError] = useState('');
 
   const setParent = useAuthStore((s) => s.setParent);
+  const setShowOnboarding = useAuthStore((s) => s.setShowOnboarding);
+  const loadSettings = useParentSettingsStore((s) => s.loadSettings);
 
   const handleForgotPassword = async () => {
     if (!forgotEmail.trim()) {
@@ -131,6 +135,9 @@ export const LoginParentScreen: React.FC<AuthScreenProps<'LoginParent'>> = ({ na
 
     if (result.success && result.data) {
       setParent(result.data);
+      const hasSeen = await onboardingService.hasSeenOnboarding();
+      setShowOnboarding(!hasSeen);
+      await loadSettings(result.data.id);
     } else if (result.success && result.needsEmailConfirmation) {
       setIsSuccess(true);
       setError(result.error ?? '');

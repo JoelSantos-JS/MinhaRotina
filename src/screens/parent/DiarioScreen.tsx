@@ -22,7 +22,7 @@ import { useRoutineStore } from '../../stores/routineStore';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { formatDateLabel, formatTime } from '../../utils/dateUtils';
-import type { TaskProgress } from '../../types/models';
+import type { TaskProgressWithRelations } from '../../types/models';
 
 type SkipRecord = {
   id: string;
@@ -40,13 +40,15 @@ type NoteTarget =
   | { kind: 'progress'; id: string; current: string | null | undefined }
   | { kind: 'skip'; id: string; current: string | null | undefined };
 
+type ProgressRecord = TaskProgressWithRelations & { childName: string; childEmoji: string };
+
 export const DiarioScreen: React.FC = () => {
   const parent = useAuthStore((s) => s.parent);
   const { children, fetchChildren } = useChildStore();
   const { routines } = useRoutineStore();
 
   const [selectedChildId, setSelectedChildId] = useState<string | 'all'>('all');
-  const [allProgress, setAllProgress] = useState<(TaskProgress & { childName: string; childEmoji: string })[]>([]);
+  const [allProgress, setAllProgress] = useState<ProgressRecord[]>([]);
   const [allSkips, setAllSkips] = useState<(SkipRecord & { childName: string; childEmoji: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDays, setSelectedDays] = useState<7 | 14 | 30>(7);
@@ -76,7 +78,7 @@ export const DiarioScreen: React.FC = () => {
     }
     setLoading(true);
     try {
-      const allRecords: (TaskProgress & { childName: string; childEmoji: string })[] = [];
+      const allRecords: ProgressRecord[] = [];
       const allSkipRecords: (SkipRecord & { childName: string; childEmoji: string })[] = [];
 
       for (const child of children) {
@@ -111,6 +113,12 @@ export const DiarioScreen: React.FC = () => {
 
   const getRoutineName = (routineId: string) =>
     routines.find((r) => r.id === routineId)?.name ?? 'Rotina';
+
+  const getProgressRoutineName = (record: ProgressRecord) =>
+    record.routines?.name ?? getRoutineName(record.routine_id);
+
+  const getProgressTaskName = (record: ProgressRecord) =>
+    record.tasks?.name ?? 'Tarefa concluida';
 
   const openNote = (target: NoteTarget) => {
     setNoteTarget(target);
@@ -281,10 +289,12 @@ export const DiarioScreen: React.FC = () => {
                     {groups[date].map((record) => (
                       <View key={record.id} style={styles.recordBlock}>
                         <View style={styles.recordRow}>
-                          <Text style={styles.recordEmoji}>{record.childEmoji}</Text>
+                          <Text style={styles.recordEmoji}>{record.tasks?.icon_emoji ?? record.childEmoji}</Text>
                           <View style={styles.recordInfo}>
-                            <Text style={styles.recordChild}>{record.childName}</Text>
-                            <Text style={styles.recordRoutine}>{getRoutineName(record.routine_id)}</Text>
+                            <Text style={styles.recordTaskName}>{getProgressTaskName(record)}</Text>
+                            <Text style={styles.recordRoutine}>
+                              {record.childName} - {getProgressRoutineName(record)}
+                            </Text>
                           </View>
                           <View style={styles.recordRight}>
                             <Text style={styles.recordCheck}>✅</Text>
@@ -560,8 +570,8 @@ const styles = StyleSheet.create({
   },
   recordEmoji: { fontSize: 28 },
   recordInfo: { flex: 1 },
-  recordChild: { ...Typography.labelSmall, color: BlueyColors.textSecondary },
-  recordRoutine: { ...Typography.bodyMedium, color: BlueyColors.textPrimary },
+  recordTaskName: { ...Typography.bodyMedium, color: BlueyColors.textPrimary },
+  recordRoutine: { ...Typography.bodySmall, color: BlueyColors.textSecondary },
   recordRight: { alignItems: 'flex-end', gap: 2 },
   recordCheck: { fontSize: 18 },
   recordTime: { ...Typography.bodySmall, color: BlueyColors.textSecondary },
