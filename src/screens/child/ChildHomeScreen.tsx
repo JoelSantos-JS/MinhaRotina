@@ -16,6 +16,7 @@ import { BlueyColors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { ROUTINE_TYPES } from '../../config/constants';
 import { getCurrentDayPeriod, isRoutineAvailableNow } from '../../utils/timeWindow';
+import { routineCalendarService } from '../../services/routineCalendarService';
 import type { Routine } from '../../types/models';
 import type { ChildScreenProps } from '../../types/navigation';
 
@@ -35,6 +36,7 @@ export const ChildHomeScreen: React.FC<ChildScreenProps<'ChildHome'>> = ({
   const logout = useAuthStore((s) => s.logout);
 
   const [routines, setRoutines] = useState<Routine[]>([]);
+  const [calendarMap, setCalendarMap] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => new Date());
 
@@ -51,7 +53,13 @@ export const ChildHomeScreen: React.FC<ChildScreenProps<'ChildHome'>> = ({
     setLoading(true);
     try {
       const data = await routineService.getRoutinesByChild(childId);
-      setRoutines(data.filter((r) => r.is_active));
+      const active = data.filter((r) => r.is_active);
+      setRoutines(active);
+      // Load days-of-week availability for each routine
+      const entries = await Promise.all(
+        active.map(async (r) => [r.id, await routineCalendarService.isAvailableToday(r.id)] as const)
+      );
+      setCalendarMap(Object.fromEntries(entries));
     } catch {
       setRoutines([]);
     } finally {
@@ -89,6 +97,8 @@ export const ChildHomeScreen: React.FC<ChildScreenProps<'ChildHome'>> = ({
     return <LoadingSpinner fullScreen message="Carregando rotinas..." />;
   }
 
+  const visibleRoutines = routines.filter((r) => calendarMap[r.id] !== false);
+
   return (
     <SafeAreaView style={styles.safe}>
       <LinearGradient
@@ -109,7 +119,7 @@ export const ChildHomeScreen: React.FC<ChildScreenProps<'ChildHome'>> = ({
         </View>
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          {routines.length === 0 ? (
+          {visibleRoutines.length === 0 ? (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyEmoji}>zzz</Text>
               <Text style={styles.emptyTitle}>Nenhuma rotina ativa</Text>
@@ -123,7 +133,7 @@ export const ChildHomeScreen: React.FC<ChildScreenProps<'ChildHome'>> = ({
               <Text style={styles.currentPeriodText}>
                 Agora: periodo da {currentPeriodLabel.toLowerCase()}
               </Text>
-              {routines.map((routine) => {
+              {visibleRoutines.map((routine) => {
                 const typeInfo = getTypeInfo(routine.type);
                 const availableNow = isRoutineAvailableNow(routine.type, now);
 

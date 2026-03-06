@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { ParentFAB } from '../components/ui/ParentFAB';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { DashboardScreen } from '../screens/parent/DashboardScreen';
@@ -52,6 +53,7 @@ export const ParentTabNavigator: React.FC = () => {
   const tabBarHeight = 58 + insets.bottom;
 
   return (
+    <View style={{ flex: 1 }}>
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
@@ -80,6 +82,8 @@ export const ParentTabNavigator: React.FC = () => {
       <Tab.Screen name="Ajustes" component={SettingsScreen as React.ComponentType<any>} />
       <Tab.Screen name="Ajuda" component={AjudaScreen} />
     </Tab.Navigator>
+    <ParentFAB />
+    </View>
   );
 };
 

@@ -16,7 +16,6 @@ import { BlueyInput } from '../../components/ui/BlueyInput';
 import { BlueyButton } from '../../components/ui/BlueyButton';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { supabase } from '../../config/supabase';
-import { hashPin } from '../../utils/pinUtils';
 import { useAuthStore } from '../../stores/authStore';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
@@ -24,105 +23,150 @@ import type { ChildAccount } from '../../types/models';
 import type { AuthScreenProps } from '../../types/navigation';
 
 type Step = 'email' | 'pin';
+const MAX_PIN_ATTEMPTS = 5;
+const PIN_LOCK_MS = 30_000;
+
+function symbolFromCodePoint(...codePoints: number[]): string {
+  return String.fromCodePoint(...codePoints);
+}
+
+const UI_SYMBOLS = {
+  child: symbolFromCodePoint(0x1F467),
+  pin: symbolFromCodePoint(0x1F511),
+  sad: symbolFromCodePoint(0x1F641),
+  star: symbolFromCodePoint(0x2731),
+};
+
+function mapChildLoginRpcError(error: unknown): string {
+  const msg = String((error as { message?: string })?.message ?? '').toLowerCase();
+
+  if (msg.includes('network') || msg.includes('fetch') || msg.includes('timeout')) {
+    return 'Falha de conexao. Verifique a internet e tente novamente.';
+  }
+  return 'Nao foi possivel entrar agora. Tente novamente.';
+}
+
+async function tryLegacyChildLogin(email: string, pin: string): Promise<{
+  child: ChildAccount | null;
+  error: unknown | null;
+}> {
+  const { data: parentData, error: parentError } = await supabase.rpc(
+    'get_parent_for_child_login',
+    { p_email: email }
+  );
+  if (parentError) return { child: null, error: parentError };
+
+  const parentId = (parentData as { id?: string } | null)?.id;
+  if (!parentId) return { child: null, error: null };
+
+  const { data: childData, error: childError } = await supabase.rpc(
+    'authenticate_child_pin',
+    {
+      p_parent_id: parentId,
+      p_pin: pin,
+    }
+  );
+  if (childError) return { child: null, error: childError };
+
+  return { child: (childData as ChildAccount | null) ?? null, error: null };
+}
 
 export const LoginChildScreen: React.FC<AuthScreenProps<'LoginChild'>> = ({ navigation }) => {
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
-  const [parentId, setParentId] = useState('');
-  const [parentName, setParentName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [pinError, setPinError] = useState(false);
   const [pinKey, setPinKey] = useState(0);
+  const [failedPinAttempts, setFailedPinAttempts] = useState(0);
+  const [pinLockUntilMs, setPinLockUntilMs] = useState<number | null>(null);
 
   const setChild = useAuthStore((s) => s.setChild);
 
-  // Step 1: find parent by email
-  const handleEmailSubmit = async () => {
+  const handleEmailSubmit = () => {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed) {
       setError('Digite o email do responsavel.');
       return;
     }
 
-    setLoading(true);
+    // Anti-enumeracao: nao valida existencia de email nesta etapa.
     setError('');
-
-    try {
-      const { data, error: dbError } = await supabase
-        .from('parent_accounts')
-        .select('id, name')
-        .eq('email', trimmed)
-        .single();
-
-      if (dbError) {
-        if (dbError.code === 'PGRST116') {
-          setError('Email nao encontrado. Verifique o email do responsavel e tente novamente.');
-        } else {
-          setError('Erro ao conectar. Verifique sua internet e tente novamente.');
-        }
-        return;
-      }
-      if (!data) {
-        setError('Email nao encontrado. Verifique o email do responsavel e tente novamente.');
-        return;
-      }
-
-      setParentId(data.id);
-      setParentName(data.name);
-      setStep('pin');
-    } catch {
-      setError('Erro ao buscar. Tente novamente.');
-    } finally {
-      setLoading(false);
-    }
+    setStep('pin');
   };
 
-  // Step 2: verify PIN scoped to this parent only
   const handlePinComplete = async (pin: string) => {
+    const now = Date.now();
+    if (pinLockUntilMs && pinLockUntilMs > now) {
+      const waitSeconds = Math.ceil((pinLockUntilMs - now) / 1000);
+      setPinError(true);
+      setError(`Muitas tentativas. Aguarde ${waitSeconds}s para tentar novamente.`);
+      setPinKey((k) => k + 1);
+      return;
+    }
+
     setLoading(true);
     setError('');
     setPinError(false);
 
     try {
-      const pinHash = await hashPin(pin);
+      const { data: directData, error: directError } = await supabase.rpc(
+        'authenticate_child_login',
+        {
+          p_email: email.trim().toLowerCase(),
+          p_pin: pin,
+        }
+      );
 
-      const { data: matchedChildren, error: dbError } = await supabase
-        .from('child_accounts')
-        .select('*')
-        .eq('created_by', parentId)
-        .eq('pin_hash', pinHash);
+      let matchedChildData = directData as ChildAccount | null;
+      let finalError: unknown = directError;
 
-      if (dbError) throw dbError;
+      // Fallback para projetos que ainda estao no fluxo legado.
+      if (directError) {
+        const legacy = await tryLegacyChildLogin(email.trim().toLowerCase(), pin);
+        if (legacy.child) {
+          matchedChildData = legacy.child;
+          finalError = null;
+        } else if (!legacy.error) {
+          matchedChildData = null;
+          finalError = null;
+        } else {
+          finalError = legacy.error;
+        }
+      }
 
-      if (!matchedChildren || matchedChildren.length === 0) {
+      if (finalError) throw finalError;
+
+      if (!matchedChildData) {
+        const nextAttempts = failedPinAttempts + 1;
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setPinError(true);
-        setError('PIN incorreto. Tente de novo!');
+
+        if (nextAttempts >= MAX_PIN_ATTEMPTS) {
+          setFailedPinAttempts(0);
+          setPinLockUntilMs(Date.now() + PIN_LOCK_MS);
+          setError('Muitas tentativas de login. Aguarde 30s para tentar novamente.');
+        } else {
+          setFailedPinAttempts(nextAttempts);
+          setError(`Email ou PIN incorreto. Tentativa ${nextAttempts}/${MAX_PIN_ATTEMPTS}.`);
+        }
+
         setPinKey((k) => k + 1);
         return;
       }
 
-      if (matchedChildren.length > 1) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        setPinError(true);
-        setError('Encontramos mais de uma crianca com este PIN nessa familia. O responsavel precisa alterar um dos PINs.');
-        setPinKey((k) => k + 1);
-        return;
-      }
-
-      const matchedChild = matchedChildren[0] as ChildAccount;
-
-      await supabase
-        .from('child_accounts')
-        .update({ last_login_at: new Date().toISOString() })
-        .eq('id', matchedChild.id);
+      const matchedChild = matchedChildData as ChildAccount;
+      setFailedPinAttempts(0);
+      setPinLockUntilMs(null);
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setChild(matchedChild);
-    } catch {
+    } catch (err) {
+      if (__DEV__) {
+        console.warn('[LoginChildScreen] child login RPC error', err);
+      }
       setPinError(true);
-      setError('Erro ao verificar. Tente novamente.');
+      setError(mapChildLoginRpcError(err));
       setPinKey((k) => k + 1);
     } finally {
       setLoading(false);
@@ -134,9 +178,9 @@ export const LoginChildScreen: React.FC<AuthScreenProps<'LoginChild'>> = ({ navi
       setStep('email');
       setError('');
       setPinError(false);
-    } else {
-      navigation.goBack();
+      return;
     }
+    navigation.goBack();
   };
 
   return (
@@ -147,7 +191,7 @@ export const LoginChildScreen: React.FC<AuthScreenProps<'LoginChild'>> = ({ navi
           style={styles.kav}
         >
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-            <Text style={styles.backText}>{'← Voltar'}</Text>
+            <Text style={styles.backText}>{'<'} Voltar</Text>
           </TouchableOpacity>
 
           <ScrollView
@@ -158,18 +202,19 @@ export const LoginChildScreen: React.FC<AuthScreenProps<'LoginChild'>> = ({ navi
             <View style={styles.container}>
               {step === 'email' ? (
                 <>
-                  <Text style={styles.emoji}>{'👧'}</Text>
-                  <Text style={styles.title}>Login da Crian{'\u00E7'}a</Text>
-                  <Text style={styles.subtitle}>
-                    Digite o email do respons{'\u00E1'}vel para encontrar as crian{'\u00E7'}as cadastradas
-                  </Text>
+                  <Text style={styles.emoji}>{UI_SYMBOLS.child}</Text>
+                  <Text style={styles.title}>Login da Crianca</Text>
+                  <Text style={styles.subtitle}>Digite o email do responsavel para continuar</Text>
 
                   <View style={styles.inputArea}>
                     <BlueyInput
-                      label={'Email do Respons\u00E1vel'}
+                      label="Email do Responsavel"
                       placeholder="email@exemplo.com"
                       value={email}
-                      onChangeText={(t) => { setEmail(t); setError(''); }}
+                      onChangeText={(t) => {
+                        setEmail(t);
+                        setError('');
+                      }}
                       keyboardType="email-address"
                       autoCapitalize="none"
                       autoCorrect={false}
@@ -177,7 +222,7 @@ export const LoginChildScreen: React.FC<AuthScreenProps<'LoginChild'>> = ({ navi
                       error={error || undefined}
                     />
                     <BlueyButton
-                      title={'Continuar \u2192'}
+                      title="Continuar"
                       onPress={handleEmailSubmit}
                       loading={loading}
                       disabled={!email.trim()}
@@ -187,27 +232,19 @@ export const LoginChildScreen: React.FC<AuthScreenProps<'LoginChild'>> = ({ navi
                 </>
               ) : (
                 <>
-                  <Text style={styles.emoji}>{'🔑'}</Text>
-                  <Text style={styles.title}>{'Qual \u00E9 o seu PIN?'}</Text>
-                  <Text style={styles.subtitle}>
-                    {'Fam\u00EDlia de '}
-                    <Text style={styles.parentName}>{parentName}</Text>
-                    {'\nDigite os 4 n\u00FAmeros do seu PIN'}
-                  </Text>
+                  <Text style={styles.emoji}>{UI_SYMBOLS.pin}</Text>
+                  <Text style={styles.title}>Qual e o seu PIN?</Text>
+                  <Text style={styles.subtitle}>Digite os 4 numeros do seu PIN</Text>
 
                   {loading ? (
                     <LoadingSpinner message="Verificando..." />
                   ) : (
-                    <PinInput
-                      key={pinKey}
-                      onComplete={handlePinComplete}
-                      error={pinError}
-                    />
+                    <PinInput key={pinKey} onComplete={handlePinComplete} error={pinError} />
                   )}
 
                   {error ? (
                     <View style={styles.errorContainer}>
-                      <Text style={styles.errorEmoji}>{'😅'}</Text>
+                      <Text style={styles.errorEmoji}>{UI_SYMBOLS.sad}</Text>
                       <Text style={styles.errorText}>{error}</Text>
                     </View>
                   ) : null}
@@ -215,9 +252,9 @@ export const LoginChildScreen: React.FC<AuthScreenProps<'LoginChild'>> = ({ navi
               )}
 
               <View style={styles.stars}>
-                <Text style={styles.star}>{'⭐'}</Text>
-                <Text style={[styles.star, styles.starBig]}>{'⭐'}</Text>
-                <Text style={styles.star}>{'⭐'}</Text>
+                <Text style={styles.star}>{UI_SYMBOLS.star}</Text>
+                <Text style={[styles.star, styles.starBig]}>{UI_SYMBOLS.star}</Text>
+                <Text style={styles.star}>{UI_SYMBOLS.star}</Text>
               </View>
             </View>
           </ScrollView>
@@ -250,7 +287,7 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
   },
   emoji: {
-    fontSize: 80,
+    fontSize: 36,
     marginBottom: 16,
   },
   title: {
@@ -264,11 +301,6 @@ const styles = StyleSheet.create({
     color: BlueyColors.textSecondary,
     textAlign: 'center',
     marginBottom: 32,
-  },
-  parentName: {
-    ...Typography.bodyLarge,
-    color: BlueyColors.blueyDark,
-    fontWeight: '700',
   },
   inputArea: {
     width: '100%',

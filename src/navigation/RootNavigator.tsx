@@ -4,6 +4,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { supabase } from '../config/supabase';
 import { authService } from '../services/auth.service';
 import { useAuthStore } from '../stores/authStore';
+import { onboardingService } from '../services/onboardingService';
+import { useParentSettingsStore } from '../stores/parentSettingsStore';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { AuthNavigator } from './AuthNavigator';
 import { ParentNavigator } from './ParentNavigator';
@@ -12,7 +14,8 @@ import { ChildNavigator } from './ChildNavigator';
 const Stack = createNativeStackNavigator();
 
 export const RootNavigator: React.FC = () => {
-  const { parent, child, isLoading, setParent, setLoading } = useAuthStore();
+  const { parent, child, isLoading, setParent, setLoading, setShowOnboarding } = useAuthStore();
+  const loadSettings = useParentSettingsStore((s) => s.loadSettings);
 
   useEffect(() => {
     // Check existing session on app start
@@ -21,7 +24,12 @@ export const RootNavigator: React.FC = () => {
         const session = await authService.getSession();
         if (session) {
           const parentData = await authService.getCurrentParent();
-          if (parentData) setParent(parentData);
+          if (parentData) {
+            setParent(parentData);
+            const hasSeen = await onboardingService.hasSeenOnboarding();
+            setShowOnboarding(!hasSeen);
+            await loadSettings(parentData.id);
+          }
         }
       } catch {
         // Erro de rede ou Supabase — continua para a tela de login

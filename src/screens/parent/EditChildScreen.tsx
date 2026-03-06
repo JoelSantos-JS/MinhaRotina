@@ -6,7 +6,9 @@ import { BlueyButton } from '../../components/ui/BlueyButton';
 import { BlueyInput } from '../../components/ui/BlueyInput';
 import { PinInput } from '../../components/ui/PinInput';
 import { childService } from '../../services/child.service';
-import { feedbackService, VibrationIntensity, CelebrationStyle } from '../../services/feedbackService';
+import { feedbackService, DEFAULT_SETTINGS, VibrationIntensity, CelebrationStyle, SoundType } from '../../services/feedbackService';
+import { soundService } from '../../services/soundService';
+import { getTaskCompleteSound, type FavoriteInstrument } from '../../config/sounds';
 import { useChildStore } from '../../stores/childStore';
 import { useAuthStore } from '../../stores/authStore';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
@@ -73,6 +75,9 @@ export const EditChildScreen: React.FC<ParentScreenProps<'EditChild'>> = ({ navi
   const [error, setError] = useState('');
   const [vibration, setVibration] = useState<VibrationIntensity>('medium');
   const [celebration, setCelebration] = useState<CelebrationStyle>('special');
+  const [soundType, setSoundType] = useState<SoundType>('music');
+  const [musicVolume, setMusicVolume] = useState<number>(0.65);
+  const [favoriteInstrument, setFavoriteInstrument] = useState<FavoriteInstrument>('piano');
   const [visualSupport, setVisualSupport] = useState<VisualSupportType>(
     child?.visual_support_type ?? 'images_text'
   );
@@ -84,6 +89,9 @@ export const EditChildScreen: React.FC<ParentScreenProps<'EditChild'>> = ({ navi
     feedbackService.getSettings(childId).then((s) => {
       setVibration(s.vibrationIntensity);
       setCelebration(s.celebrationStyle);
+      setSoundType(s.soundType);
+      setMusicVolume(s.musicVolume);
+      setFavoriteInstrument(s.favoriteInstrument);
     });
   }, [childId]);
 
@@ -117,6 +125,9 @@ export const EditChildScreen: React.FC<ParentScreenProps<'EditChild'>> = ({ navi
       await feedbackService.saveSettings(childId, {
         vibrationIntensity: vibration,
         celebrationStyle: celebration,
+        soundType,
+        musicVolume,
+        favoriteInstrument,
       });
       Alert.alert('✅ Salvo!', `Perfil de ${updated.name} atualizado.`, [
         { text: 'OK', onPress: () => navigation.goBack() },
@@ -298,6 +309,90 @@ export const EditChildScreen: React.FC<ParentScreenProps<'EditChild'>> = ({ navi
             </View>
           ))}
 
+          {/* Tipo de Feedback Sonoro */}
+          <Text style={styles.sectionLabel}>🎵 Tipo de Feedback Sonoro</Text>
+          <View style={styles.optionRow}>
+            {([
+              { value: 'music'     as SoundType, label: 'Música',    emoji: '🎵' },
+              { value: 'vibration' as SoundType, label: 'Vibração',  emoji: '📳' },
+              { value: 'silent'    as SoundType, label: 'Silencioso', emoji: '🔇' },
+            ] as const).map((opt) => (
+              <TouchableOpacity
+                key={opt.value}
+                style={[styles.optionBtn, soundType === opt.value && styles.optionBtnActive]}
+                onPress={() => setSoundType(opt.value)}
+              >
+                <Text style={styles.optionEmoji}>{opt.emoji}</Text>
+                <Text style={[styles.optionLabel, soundType === opt.value && styles.optionLabelActive]}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {soundType === 'music' && (
+            <>
+              {/* Instrumento Favorito */}
+              <Text style={styles.sectionLabel}>🎸 Instrumento Favorito</Text>
+              <View style={styles.optionRow}>
+                {([
+                  { value: 'piano'   as FavoriteInstrument, label: 'Piano',   emoji: '🎹' },
+                  { value: 'violin'  as FavoriteInstrument, label: 'Violino', emoji: '🎻' },
+                  { value: 'kalimba' as FavoriteInstrument, label: 'Kalimba', emoji: '🪗' },
+                  { value: 'mixed'   as FavoriteInstrument, label: 'Misto',   emoji: '🎶' },
+                ] as const).map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.optionBtn, favoriteInstrument === opt.value && styles.optionBtnActive]}
+                    onPress={() => setFavoriteInstrument(opt.value)}
+                  >
+                    <Text style={styles.optionEmoji}>{opt.emoji}</Text>
+                    <Text style={[styles.optionLabel, favoriteInstrument === opt.value && styles.optionLabelActive]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Volume da Música */}
+              <Text style={styles.sectionLabel}>🔊 Volume da Música</Text>
+              <View style={styles.optionRow}>
+                {([
+                  { value: 0.3,  label: '30%' },
+                  { value: 0.5,  label: '50%' },
+                  { value: 0.75, label: '75%' },
+                  { value: 1.0,  label: '100%' },
+                ] as const).map((opt) => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.optionBtn, Math.abs(musicVolume - opt.value) < 0.01 && styles.optionBtnActive]}
+                    onPress={() => setMusicVolume(opt.value)}
+                  >
+                    <Text style={[
+                      styles.optionLabel,
+                      Math.abs(musicVolume - opt.value) < 0.01 && styles.optionLabelActive,
+                      { fontSize: 14 },
+                    ]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Preview de áudio */}
+              <TouchableOpacity
+                style={styles.previewSoundBtn}
+                onPress={() =>
+                  soundService.playNote(getTaskCompleteSound(favoriteInstrument), musicVolume)
+                }
+                activeOpacity={0.8}
+              >
+                <Text style={styles.previewSoundEmoji}>▶️</Text>
+                <Text style={styles.previewSoundText}>Tocar preview do instrumento</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
           {/* Feedback / Vibração */}
           <Text style={styles.sectionLabel}>📳 Vibração ao Completar Tarefa</Text>
           <View style={styles.optionRow}>
@@ -478,6 +573,20 @@ const styles = StyleSheet.create({
   radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: BlueyColors.blueyMain },
   sensoryBlock: { marginBottom: 16 },
   sensoryCategory: { ...Typography.labelSmall, color: BlueyColors.textSecondary, marginBottom: 6 },
+  previewSoundBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: BlueyColors.borderMedium,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 20,
+    gap: 10,
+  },
+  previewSoundEmoji: { fontSize: 20 },
+  previewSoundText: { ...Typography.bodyMedium, color: BlueyColors.blueyDark },
   themeLink: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -90,12 +90,33 @@ function toTelUrl(phone: string): string {
   return `tel:${cleaned}`;
 }
 
+function symbolFromCodePoint(...codePoints: number[]): string {
+  return String.fromCodePoint(...codePoints);
+}
+
+const UI_SYMBOLS = {
+  check: symbolFromCodePoint(0x2713),
+  collapsed: symbolFromCodePoint(0x25B8),
+  expanded: symbolFromCodePoint(0x25BE),
+  intro: symbolFromCodePoint(0x2139, 0xFE0F),
+  warning: symbolFromCodePoint(0x26A0, 0xFE0F),
+  categories: {
+    rotinas: symbolFromCodePoint(0x1F4C5),
+    sensorial: symbolFromCodePoint(0x1F9E9),
+    comunicacao: symbolFromCodePoint(0x1F4AC),
+    comportamento: symbolFromCodePoint(0x26A1),
+    social: symbolFromCodePoint(0x1F465),
+    sonoAlim: symbolFromCodePoint(0x1F319),
+    desenvolvimento: symbolFromCodePoint(0x1F4C8),
+  },
+};
+
 // Categories with expandable items + "Outros"
 
 const CATEGORIES: SymptomCategory[] = [
   {
     id: 'rotinas',
-    emoji: 'R',
+    emoji: UI_SYMBOLS.categories.rotinas,
     title: 'ROTINAS EXTREMAMENTE RIGIDAS',
     items: [
       { id: 'r1', label: 'Crise severa com minima mudanca na rotina',      professionals: ['psicologo', 'to'] },
@@ -109,7 +130,7 @@ const CATEGORIES: SymptomCategory[] = [
   },
   {
     id: 'sensorial',
-    emoji: 'S',
+    emoji: UI_SYMBOLS.categories.sensorial,
     title: 'QUESTOES SENSORIAIS GRAVES',
     items: [
       { id: 's1', label: 'Meltdowns diarios ou quase diarios',              professionals: ['psicologo', 'to', 'neuropediatra'] },
@@ -124,7 +145,7 @@ const CATEGORIES: SymptomCategory[] = [
   },
   {
     id: 'comunicacao',
-    emoji: 'C',
+    emoji: UI_SYMBOLS.categories.comunicacao,
     title: 'COMUNICACAO E LINGUAGEM',
     items: [
       { id: 'c1', label: 'Nao fala ou perdeu palavras que ja sabia',         professionals: ['fono', 'neuropediatra'] },
@@ -138,7 +159,7 @@ const CATEGORIES: SymptomCategory[] = [
   },
   {
     id: 'comportamento',
-    emoji: 'B',
+    emoji: UI_SYMBOLS.categories.comportamento,
     title: 'COMPORTAMENTOS DESAFIADORES',
     items: [
       { id: 'b1', label: 'Agressividade frequente e intensa',               professionals: ['psicologo', 'psiquiatra'] },
@@ -153,7 +174,7 @@ const CATEGORIES: SymptomCategory[] = [
   },
   {
     id: 'social',
-    emoji: 'I',
+    emoji: UI_SYMBOLS.categories.social,
     title: 'INTERACAO SOCIAL',
     items: [
       { id: 'so1', label: 'Nao brinca com outras criancas',                  professionals: ['psicologo', 'to'] },
@@ -166,7 +187,7 @@ const CATEGORIES: SymptomCategory[] = [
   },
   {
     id: 'sono_alim',
-    emoji: 'N',
+    emoji: UI_SYMBOLS.categories.sonoAlim,
     title: 'SONO E ALIMENTACAO',
     items: [
       { id: 'sl1', label: 'Insonia severa quase toda noite',                professionals: ['neuropediatra', 'psicologo'] },
@@ -180,7 +201,7 @@ const CATEGORIES: SymptomCategory[] = [
   },
   {
     id: 'desenvolvimento',
-    emoji: 'D',
+    emoji: UI_SYMBOLS.categories.desenvolvimento,
     title: 'DESENVOLVIMENTO GERAL',
     items: [
       { id: 'd1', label: 'Regressao de habilidades ja conquistadas',         professionals: ['neuropediatra', 'psicologo'] },
@@ -213,7 +234,7 @@ const CheckItem = memo(function CheckItem({
       activeOpacity={0.7}
     >
       <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-        {checked && <Text style={styles.checkboxTick}>x</Text>}
+        {checked && <Text style={styles.checkboxTick}>{UI_SYMBOLS.check}</Text>}
       </View>
       <Text style={[
         styles.checkLabel,
@@ -230,7 +251,7 @@ const ProfessionalRow = memo(function ProfessionalRow({ professional }: { profes
   return (
     <View style={styles.profRow}>
       <View style={styles.profCheck}>
-        <Text style={styles.profCheckIcon}>x</Text>
+        <Text style={styles.profCheckIcon}>{UI_SYMBOLS.check}</Text>
       </View>
       <View style={styles.profInfo}>
         <Text style={styles.profName}>{professional.name}</Text>
@@ -273,7 +294,9 @@ const CategoryCard = memo(function CategoryCard({
               <Text style={styles.checkedBadgeText}>{checkedCount}</Text>
             </View>
           )}
-          <Text style={styles.collapseIcon}>{collapsed ? '>' : 'v'}</Text>
+          <Text style={styles.collapseIcon}>
+            {collapsed ? UI_SYMBOLS.collapsed : UI_SYMBOLS.expanded}
+          </Text>
         </View>
       </TouchableOpacity>
 
@@ -378,7 +401,7 @@ export const AjudaScreen: React.FC = () => {
       }
 
       const currentPosition = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
+        accuracy: Location.Accuracy.Low,
       });
 
       const nextCoordinates = {
@@ -501,13 +524,13 @@ export const AjudaScreen: React.FC = () => {
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerRow}>
-            <View>
+            <View style={styles.headerTextBlock}>
               <Text style={styles.headerTitle}>Quando Buscar Ajuda?</Text>
               <Text style={styles.headerSub}>Marque os sinais que sua crianca apresenta</Text>
             </View>
             {totalChecked > 0 && (
-              <TouchableOpacity style={styles.clearBtn} onPress={handleLimpar}>
-                <Text style={styles.clearBtnText}>Limpar</Text>
+              <TouchableOpacity style={styles.clearBtn} onPress={handleLimpar} activeOpacity={0.75}>
+                <Text style={styles.clearBtnText}>X Limpar</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -525,7 +548,7 @@ export const AjudaScreen: React.FC = () => {
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           {/* Intro */}
           <View style={styles.introBanner}>
-            <Text style={styles.introEmoji}>i</Text>
+            <Text style={styles.introEmoji}>{UI_SYMBOLS.intro}</Text>
             <Text style={styles.introText}>
               Selecione os comportamentos observados. Toque no titulo de cada categoria para expandir/recolher. O app indica os profissionais adequados.
             </Text>
@@ -564,7 +587,7 @@ export const AjudaScreen: React.FC = () => {
 
           {/* Aviso */}
           <View style={styles.warningBox}>
-            <Text style={styles.warningEmoji}>!</Text>
+            <Text style={styles.warningEmoji}>{UI_SYMBOLS.warning}</Text>
             <Text style={styles.warningText}>
               Este checklist e orientativo e nao substitui avaliacao medica. Consulte sempre um especialista para diagnostico preciso.
             </Text>
@@ -717,16 +740,30 @@ const styles = StyleSheet.create({
     color: BlueyColors.textSecondary,
     marginTop: 2,
   },
+  headerTextBlock: {
+    flex: 1,
+    flexShrink: 1,
+    marginRight: 10,
+  },
   clearBtn: {
-    backgroundColor: BlueyColors.borderLight,
-    borderRadius: 12,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    flexShrink: 0,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: BlueyColors.alertOrange,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
   clearBtnText: {
     ...Typography.labelSmall,
-    color: BlueyColors.textSecondary,
-    fontSize: 12,
+    color: BlueyColors.alertOrange,
+    fontSize: 13,
+    fontFamily: 'Nunito_700Bold',
   },
   counterRow: {
     marginTop: 8,
@@ -814,7 +851,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Nunito_700Bold',
   },
   collapseIcon: {
-    fontSize: 10,
+    fontSize: 12,
     color: BlueyColors.textSecondary,
   },
 
@@ -1151,5 +1188,4 @@ const styles = StyleSheet.create({
     backgroundColor: BlueyColors.backgroundBlue,
   },
 });
-
 

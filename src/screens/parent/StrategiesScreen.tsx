@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,9 +12,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlueyColors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import type { ParentScreenProps } from '../../types/navigation';
+
+const FAVORITES_KEY = 'strategy_favorites';
 
 if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -652,6 +655,8 @@ interface StrategyCardProps {
   categoryColor: string;
   expanded: boolean;
   onToggle: () => void;
+  isFavorite: boolean;
+  onFavoriteToggle: () => void;
 }
 
 const StrategyCard: React.FC<StrategyCardProps> = ({
@@ -659,6 +664,8 @@ const StrategyCard: React.FC<StrategyCardProps> = ({
   categoryColor,
   expanded,
   onToggle,
+  isFavorite,
+  onFavoriteToggle,
 }) => {
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
 
@@ -669,30 +676,43 @@ const StrategyCard: React.FC<StrategyCardProps> = ({
 
   return (
     <View style={[styles.card, expanded ? { borderColor: categoryColor } : null]}>
-      {/* Collapsed header — always visible */}
-      <TouchableOpacity onPress={onToggle} style={styles.cardHeader} activeOpacity={0.8}>
-        <View style={styles.cardHeaderLeft}>
-          <Text style={styles.cardProblemEmoji}>{strategy.problemEmoji}</Text>
-          <View style={styles.cardHeaderText}>
-            <Text style={styles.cardProblem}>Problema: {strategy.problem}</Text>
-            {!expanded ? (
-              <Text style={styles.cardPreview} numberOfLines={2}>
-                {strategy.preview}
-              </Text>
-            ) : null}
+      {/* Collapsed header — sempre visível */}
+      <View style={styles.cardHeader}>
+        {/* Zona de toque principal: expande/colapsa */}
+        <TouchableOpacity onPress={onToggle} style={styles.cardHeaderTouch} activeOpacity={0.8}>
+          <View style={styles.cardHeaderLeft}>
+            <Text style={styles.cardProblemEmoji}>{strategy.problemEmoji}</Text>
+            <View style={styles.cardHeaderText}>
+              <Text style={styles.cardProblem}>Problema: {strategy.problem}</Text>
+              {!expanded ? (
+                <Text style={styles.cardPreview} numberOfLines={2}>
+                  {strategy.preview}
+                </Text>
+              ) : null}
+            </View>
           </View>
-        </View>
-        <View style={styles.cardHeaderRight}>
-          <View style={[styles.badge, { backgroundColor: categoryColor + '33' }]}>
-            <Text style={[styles.badgeText, { color: categoryColor }]}>
-              {strategy.tips.length} dicas
+          <View style={styles.cardHeaderRight}>
+            <View style={[styles.badge, { backgroundColor: categoryColor + '33' }]}>
+              <Text style={[styles.badgeText, { color: categoryColor }]}>
+                {strategy.tips.length} dicas
+              </Text>
+            </View>
+            <Text style={[styles.expandIcon, { color: categoryColor }]}>
+              {expanded ? '▲' : '▼'}
             </Text>
           </View>
-          <Text style={[styles.expandIcon, { color: categoryColor }]}>
-            {expanded ? '▲' : '▼'}
-          </Text>
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
+
+        {/* Botão favorito — zona de toque independente */}
+        <TouchableOpacity
+          onPress={onFavoriteToggle}
+          style={styles.favoriteBtn}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, right: 8, bottom: 8, left: 4 }}
+        >
+          <Text style={styles.favoriteBtnText}>{isFavorite ? '⭐' : '☆'}</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Expanded content */}
       {expanded ? (
@@ -804,11 +824,40 @@ export const StrategiesScreen: React.FC<ParentScreenProps<'Strategies'>> = ({
     CATEGORIES.some((c) => c.id === focusCategory) ? (focusCategory as string) : CATEGORIES[0].id
   );
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
 
   const scrollRef = useRef<ScrollView>(null);
   const cardYPositions = useRef<Record<string, number>>({});
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const category = CATEGORIES.find((c) => c.id === activeCategory) ?? CATEGORIES[0];
+
+  // Carrega favoritos salvos na inicialização
+  useEffect(() => {
+    AsyncStorage.getItem(FAVORITES_KEY).then((raw) => {
+      if (raw) {
+        try { setFavorites(new Set(JSON.parse(raw) as string[])); } catch { /* ignore */ }
+      }
+    });
+  }, []);
+
+  const handleFavoriteToggle = useCallback((strategyId: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      next.has(strategyId) ? next.delete(strategyId) : next.add(strategyId);
+      AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify([...next])).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   const handleToggle = (id: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -816,7 +865,8 @@ export const StrategiesScreen: React.FC<ParentScreenProps<'Strategies'>> = ({
     setExpandedId(isExpanding ? id : null);
 
     if (isExpanding) {
-      setTimeout(() => {
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = setTimeout(() => {
         const y = cardYPositions.current[id];
         if (y !== undefined) {
           scrollRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
@@ -860,6 +910,44 @@ export const StrategiesScreen: React.FC<ParentScreenProps<'Strategies'>> = ({
           contentContainerStyle={styles.tabs}
           style={styles.tabsRow}
         >
+          {/* Aba Favoritos — sempre a primeira */}
+          {activeCategory === 'favorites' ? (
+            <LinearGradient
+              colors={['#F9A825', '#F57F17']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.tabActive}
+            >
+              <TouchableOpacity
+                onPress={() => handleCategoryChange('favorites')}
+                style={styles.tabTouchable}
+                activeOpacity={0.9}
+              >
+                <Text style={styles.tabEmoji}>⭐</Text>
+                <Text style={styles.tabLabelActive}>Favoritos</Text>
+                {favorites.size > 0 && (
+                  <View style={styles.favBadge}>
+                    <Text style={styles.favBadgeText}>{favorites.size}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </LinearGradient>
+          ) : (
+            <TouchableOpacity
+              onPress={() => handleCategoryChange('favorites')}
+              style={styles.tabInactive}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.tabEmoji}>⭐</Text>
+              <Text style={styles.tabLabelInactive}>Favoritos</Text>
+              {favorites.size > 0 && (
+                <View style={styles.favBadge}>
+                  <Text style={styles.favBadgeText}>{favorites.size}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
+
           {CATEGORIES.map((cat) =>
             activeCategory === cat.id ? (
               <LinearGradient
@@ -900,30 +988,68 @@ export const StrategiesScreen: React.FC<ParentScreenProps<'Strategies'>> = ({
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
       >
-        {/* Category intro */}
-        <View style={[styles.introBanner, { borderLeftColor: category.color }]}>
-          <Text style={styles.introTitle}>
-            Por que {category.label.toLowerCase()} pode ser difícil?
-          </Text>
-          <Text style={styles.introText}>{category.intro}</Text>
-        </View>
+        {activeCategory === 'favorites' ? (
+          /* ── Vista de Favoritos ── */
+          favorites.size === 0 ? (
+            <View style={styles.emptyFavorites}>
+              <Text style={styles.emptyFavEmoji}>☆</Text>
+              <Text style={styles.emptyFavTitle}>Nenhum favorito ainda</Text>
+              <Text style={styles.emptyFavText}>
+                Toque em ☆ em qualquer estratégia para salvá-la aqui.
+              </Text>
+            </View>
+          ) : (
+            CATEGORIES.flatMap((cat) =>
+              cat.strategies
+                .filter((s) => favorites.has(s.id))
+                .map((strategy) => (
+                  <View
+                    key={strategy.id}
+                    onLayout={(e) => {
+                      cardYPositions.current[strategy.id] = e.nativeEvent.layout.y;
+                    }}
+                  >
+                    <StrategyCard
+                      strategy={strategy}
+                      categoryColor={cat.color}
+                      expanded={expandedId === strategy.id}
+                      onToggle={() => handleToggle(strategy.id)}
+                      isFavorite={favorites.has(strategy.id)}
+                      onFavoriteToggle={() => handleFavoriteToggle(strategy.id)}
+                    />
+                  </View>
+                ))
+            )
+          )
+        ) : (
+          /* ── Vista de Categoria Normal ── */
+          <>
+            <View style={[styles.introBanner, { borderLeftColor: category.color }]}>
+              <Text style={styles.introTitle}>
+                Por que {category.label.toLowerCase()} pode ser difícil?
+              </Text>
+              <Text style={styles.introText}>{category.intro}</Text>
+            </View>
 
-        {/* Strategy accordion cards */}
-        {category.strategies.map((strategy) => (
-          <View
-            key={strategy.id}
-            onLayout={(e) => {
-              cardYPositions.current[strategy.id] = e.nativeEvent.layout.y;
-            }}
-          >
-            <StrategyCard
-              strategy={strategy}
-              categoryColor={category.color}
-              expanded={expandedId === strategy.id}
-              onToggle={() => handleToggle(strategy.id)}
-            />
-          </View>
-        ))}
+            {category.strategies.map((strategy) => (
+              <View
+                key={strategy.id}
+                onLayout={(e) => {
+                  cardYPositions.current[strategy.id] = e.nativeEvent.layout.y;
+                }}
+              >
+                <StrategyCard
+                  strategy={strategy}
+                  categoryColor={category.color}
+                  expanded={expandedId === strategy.id}
+                  onToggle={() => handleToggle(strategy.id)}
+                  isFavorite={favorites.has(strategy.id)}
+                  onFavoriteToggle={() => handleFavoriteToggle(strategy.id)}
+                />
+              </View>
+            ))}
+          </>
+        )}
 
         <View style={styles.bottomPadding} />
       </ScrollView>
@@ -1049,8 +1175,47 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    gap: 4,
+  },
+  cardHeaderTouch: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 10,
+  },
+  favoriteBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  favoriteBtnText: { fontSize: 22, lineHeight: 26 },
+  favBadge: {
+    backgroundColor: '#F57F17',
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    marginLeft: 4,
+    minWidth: 18,
+    alignItems: 'center',
+  },
+  favBadgeText: { ...Typography.labelSmall, fontSize: 11, color: '#FFFFFF' },
+  emptyFavorites: {
+    alignItems: 'center',
+    paddingTop: 60,
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  emptyFavEmoji: { fontSize: 56, lineHeight: 64 },
+  emptyFavTitle: { ...Typography.titleMedium, color: BlueyColors.textPrimary, textAlign: 'center' },
+  emptyFavText: {
+    ...Typography.bodyMedium,
+    color: BlueyColors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 24,
   },
   cardHeaderLeft: { flexDirection: 'row', flex: 1, gap: 12, alignItems: 'flex-start' },
   cardProblemEmoji: { fontSize: 32, lineHeight: 38 },

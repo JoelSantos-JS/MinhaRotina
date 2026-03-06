@@ -1,0 +1,67 @@
+﻿<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Confirme sua conta - Minha Rotina</title>
+  </head>
+  <body style="margin:0;padding:0;background:#D2EBFF;font-family:Arial,Helvetica,sans-serif;color:#2B2C41;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">
+      Confirme sua conta no Minha Rotina para comecar a usar o app.
+    </div>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#D2EBFF;padding:24px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:640px;background:#FFFFFF;border-radius:20px;overflow:hidden;border:1px solid #E0E0E0;">
+            <tr>
+              <td style="background:linear-gradient(90deg,#88CAFC,#D4EBFB);padding:24px 28px;">
+                <p style="margin:0;font-size:12px;letter-spacing:.6px;font-weight:700;color:#404066;text-transform:uppercase;">Minha Rotina</p>
+                <h1 style="margin:8px 0 0 0;font-size:28px;line-height:1.2;color:#2B2C41;">Confirme seu email</h1>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:28px;">
+                <p style="margin:0 0 14px 0;font-size:16px;line-height:1.6;">Oi,</p>
+                <p style="margin:0 0 14px 0;font-size:16px;line-height:1.6;">
+                  Recebemos seu cadastro no <strong>Minha Rotina</strong>. Para ativar sua conta,
+                  clique no botao abaixo.
+                </p>
+
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0;">
+                  <tr>
+                    <td align="center" bgcolor="#A8C98E" style="border-radius:12px;">
+                      <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:14px 22px;font-size:16px;font-weight:700;color:#FFFFFF;text-decoration:none;">
+                        Confirmar minha conta
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0 0 8px 0;font-size:14px;line-height:1.6;color:#404066;">
+                  Se o botao nao funcionar, copie e cole este link no navegador:
+                </p>
+                <p style="margin:0 0 16px 0;word-break:break-all;font-size:13px;line-height:1.6;color:#404066;">
+                  <a href="{{ .ConfirmationURL }}" style="color:#404066;text-decoration:underline;">{{ .ConfirmationURL }}</a>
+                </p>
+
+                <p style="margin:0;font-size:14px;line-height:1.6;color:#404066;">
+                  Se voce nao criou essa conta, pode ignorar este email.
+                </p>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="background:#FFFFFD;padding:16px 28px;border-top:1px solid #E0E0E0;">
+                <p style="margin:0;font-size:12px;line-height:1.6;color:#404066;">
+                  © 2026 Minha Rotina. Todos os direitos reservados.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

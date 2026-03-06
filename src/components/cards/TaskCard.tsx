@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
@@ -16,7 +16,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onDelete, onInfo, comp
   if (compact) {
     return (
       <View style={styles.compactContainer}>
-        <Text style={styles.compactEmoji}>{task.icon_emoji}</Text>
+        {task.photo_url ? (
+          <Image source={{ uri: task.photo_url }} style={styles.compactPhoto} resizeMode="cover" />
+        ) : (
+          <Text style={styles.compactEmoji}>{task.icon_emoji}</Text>
+        )}
         <View style={styles.compactInfo}>
           <Text style={styles.compactName}>{task.name}</Text>
           <Text style={styles.compactTime}>~{task.estimated_minutes} min</Text>
@@ -45,7 +49,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onDelete, onInfo, comp
       colors={BlueyGradients.blueVertical}
       style={styles.container}
     >
-      <Text style={styles.emoji}>{task.icon_emoji}</Text>
+      {task.photo_url ? (
+        <Image source={{ uri: task.photo_url }} style={styles.photo} resizeMode="cover" />
+      ) : (
+        <Text style={styles.emoji}>{task.icon_emoji}</Text>
+      )}
       <Text style={styles.name}>{task.name}</Text>
       <Text style={styles.time}>~{task.estimated_minutes} minutos</Text>
       {task.has_sensory_issues && (
@@ -72,6 +80,12 @@ const styles = StyleSheet.create({
   },
   emoji: {
     fontSize: 80,
+    marginBottom: 16,
+  },
+  photo: {
+    width: 96,
+    height: 96,
+    borderRadius: 20,
     marginBottom: 16,
   },
   name: {
@@ -109,6 +123,12 @@ const styles = StyleSheet.create({
   },
   compactEmoji: {
     fontSize: 32,
+    marginRight: 12,
+  },
+  compactPhoto: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     marginRight: 12,
   },
   compactInfo: {

@@ -12,6 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
 import { progressService } from '../../services/routine.service';
 import { useChildStore } from '../../stores/childStore';
+import { groupByDate, buildDateRange, calcStreak, calcCompletionRate } from '../../utils/progressUtils';
 import { BlueyColors, BlueyGradients } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import type { TaskProgress } from '../../types/models';
@@ -35,42 +36,6 @@ function formatDateLong(dateStr: string) {
 function formatTime(dateStr: string) {
   const d = new Date(dateStr);
   return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-}
-
-function groupByDate(records: TaskProgress[]): Record<string, TaskProgress[]> {
-  const groups: Record<string, TaskProgress[]> = {};
-  for (const r of records) {
-    const date = r.completed_at.split('T')[0];
-    if (!groups[date]) groups[date] = [];
-    groups[date].push(r);
-  }
-  return groups;
-}
-
-function buildDateRange(days: number): string[] {
-  const result: string[] = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    result.push(d.toISOString().split('T')[0]);
-  }
-  return result;
-}
-
-function calcStreak(grouped: Record<string, TaskProgress[]>): number {
-  let streak = 0;
-  const today = new Date();
-  for (let i = 0; i < 365; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    const key = d.toISOString().split('T')[0];
-    if (grouped[key]?.length) {
-      streak++;
-    } else {
-      break;
-    }
-  }
-  return streak;
 }
 
 // ─── Bar chart ────────────────────────────────────────────────────────────────
@@ -151,7 +116,7 @@ export const ProgressScreen: React.FC<ParentScreenProps<'Progress'>> = ({ naviga
   const activeDays = dates.length;
   const streak = calcStreak(grouped);
   const avgPerDay = activeDays > 0 ? (totalCompleted / activeDays).toFixed(1) : '0';
-  const completionRate = Math.min(Math.round((activeDays / selectedDays) * 100), 100);
+  const completionRate = calcCompletionRate(activeDays, selectedDays);
 
   const maxDayCount = Math.max(...dateRange.map((d) => grouped[d]?.length ?? 0), 1);
 

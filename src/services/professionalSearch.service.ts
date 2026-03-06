@@ -22,6 +22,8 @@ const MIN_RATING = 4;
 const DEFAULT_RADIUS_METERS = 12000;
 const DEFAULT_RESULTS_PER_CATEGORY = 5;
 const CACHE_TTL_MS = 30 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 200;
+const MAX_RATE_LIMIT_KEYS = 1000;
 
 const RATE_LIMIT_CONFIG: RateLimitConfig = {
   windowMs: 60_000,
@@ -35,6 +37,32 @@ const SEARCH_CACHE = new Map<
 >();
 
 const RATE_LIMIT_BY_KEY = new Map<string, RateLimitEntry>();
+
+function trimMapToSize<T>(map: Map<string, T>, maxSize: number) {
+  while (map.size > maxSize) {
+    const oldestKey = map.keys().next().value as string | undefined;
+    if (!oldestKey) return;
+    map.delete(oldestKey);
+  }
+}
+
+function pruneInMemoryStores(nowMs: number) {
+  for (const [key, entry] of SEARCH_CACHE.entries()) {
+    if (entry.expiresAtMs <= nowMs) {
+      SEARCH_CACHE.delete(key);
+    }
+  }
+
+  for (const [key, entry] of RATE_LIMIT_BY_KEY.entries()) {
+    const windowEndMs = entry.windowStartMs + RATE_LIMIT_CONFIG.windowMs;
+    if (windowEndMs <= nowMs) {
+      RATE_LIMIT_BY_KEY.delete(key);
+    }
+  }
+
+  trimMapToSize(SEARCH_CACHE, MAX_CACHE_ENTRIES);
+  trimMapToSize(RATE_LIMIT_BY_KEY, MAX_RATE_LIMIT_KEYS);
+}
 
 interface SearchCoordinates {
   latitude: number;
@@ -173,6 +201,7 @@ export async function searchProfessionalsByCategory({
     maxPerCategory: maxPlacesPerCategory,
   });
   const nowMs = Date.now();
+  pruneInMemoryStores(nowMs);
 
   const cached = SEARCH_CACHE.get(cacheKey);
   if (cached && cached.expiresAtMs > nowMs) {

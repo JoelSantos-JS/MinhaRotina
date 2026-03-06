@@ -1,9 +1,9 @@
--- ============================================================
+﻿-- ============================================================
 -- MINHA ROTINA - Schema do Banco de Dados (Supabase PostgreSQL)
--- Execute este SQL no Supabase Dashboard → SQL Editor
+-- Execute este SQL no Supabase Dashboard â†’ SQL Editor
 -- ============================================================
 
--- Extensão para UUID
+-- ExtensÃ£o para UUID
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================================
@@ -31,11 +31,11 @@ CREATE TABLE IF NOT EXISTS child_accounts (
     name VARCHAR(255) NOT NULL,
     age INTEGER NOT NULL CHECK (age >= 1 AND age <= 18),
     photo_url VARCHAR(500),
-    access_pin VARCHAR(4) NOT NULL CHECK (access_pin ~ '^[0-9]{4}$'),
+    access_pin VARCHAR(4) CHECK (access_pin ~ '^[0-9]{4}$'),
     pin_hash VARCHAR(255) NOT NULL,
     qr_code_hash VARCHAR(255) UNIQUE,
     color_theme VARCHAR(7) DEFAULT '#88CAFC',
-    icon_emoji VARCHAR(10) DEFAULT '🌸',
+    icon_emoji VARCHAR(10) DEFAULT 'ðŸŒ¸',
     sensory_profile JSONB,
     notes TEXT,
     created_by UUID REFERENCES parent_accounts(id) ON DELETE CASCADE,
@@ -131,7 +131,7 @@ ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE task_progress ENABLE ROW LEVEL SECURITY;
 ALTER TABLE educational_strategies ENABLE ROW LEVEL SECURITY;
 
--- Políticas para parent_accounts
+-- PolÃ­ticas para parent_accounts
 CREATE POLICY "Pais veem apenas sua conta"
     ON parent_accounts FOR SELECT
     USING (auth.uid() = id);
@@ -144,7 +144,7 @@ CREATE POLICY "Pais inserem sua conta"
     ON parent_accounts FOR INSERT
     WITH CHECK (auth.uid() = id);
 
--- Políticas para child_accounts
+-- PolÃ­ticas para child_accounts
 CREATE POLICY "Pais veem filhos que criaram"
     ON child_accounts FOR SELECT
     USING (created_by = auth.uid());
@@ -161,13 +161,11 @@ CREATE POLICY "Pais deletam seus filhos"
     ON child_accounts FOR DELETE
     USING (created_by = auth.uid());
 
--- IMPORTANTE: Política para login de filhos por PIN
--- (precisa ler todos para verificar o hash)
-CREATE POLICY "Leitura publica para login por PIN"
-    ON child_accounts FOR SELECT
-    USING (true);
+-- IMPORTANTE:
+-- NÃ£o use leitura pÃºblica para login por PIN.
+-- Use RPC com SECURITY DEFINER para autenticar o PIN sem expor child_accounts.
 
--- Políticas para routines
+-- PolÃ­ticas para routines
 CREATE POLICY "Pais veem rotinas de seus filhos"
     ON routines FOR SELECT
     USING (
@@ -184,7 +182,7 @@ CREATE POLICY "Pais gerenciam rotinas de seus filhos"
         )
     );
 
--- Políticas para tasks
+-- PolÃ­ticas para tasks
 CREATE POLICY "Pais veem tarefas de seus filhos"
     ON tasks FOR SELECT
     USING (
@@ -205,13 +203,28 @@ CREATE POLICY "Pais gerenciam tarefas de seus filhos"
         )
     );
 
--- Políticas para task_progress
+-- PolÃ­ticas para task_progress
 CREATE POLICY "Acesso ao progresso das tarefas"
     ON task_progress FOR ALL
-    USING (true);
+    USING (
+        EXISTS (
+            SELECT 1
+            FROM child_accounts c
+            WHERE c.id = task_progress.child_id
+              AND c.created_by = auth.uid()
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1
+            FROM child_accounts c
+            WHERE c.id = task_progress.child_id
+              AND c.created_by = auth.uid()
+        )
+    );
 
--- Políticas para educational_strategies (leitura pública)
-CREATE POLICY "Estratégias são públicas"
+-- PolÃ­ticas para educational_strategies (leitura pÃºblica)
+CREATE POLICY "EstratÃ©gias sÃ£o pÃºblicas"
     ON educational_strategies FOR SELECT
     USING (true);
 
@@ -241,3 +254,4 @@ CREATE TRIGGER update_routines_updated_at
 CREATE TRIGGER update_tasks_updated_at
     BEFORE UPDATE ON tasks
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+

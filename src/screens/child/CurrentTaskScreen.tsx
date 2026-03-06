@@ -46,10 +46,10 @@ import type { ChildScreenProps } from '../../types/navigation';
 const CARD_BG = '#FFFFFD';
 
 function getRoutineTypeLabel(type: string): string {
-  if (type === 'morning') return 'manha';
+  if (type === 'morning') return 'manhã';
   if (type === 'afternoon') return 'tarde';
   if (type === 'night') return 'noite';
-  return 'periodo personalizado';
+  return 'período personalizado';
 }
 
 
@@ -174,6 +174,7 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
   const taskSlide = useRef(new Animated.Value(0)).current;
   const btnScale = useRef(new Animated.Value(1)).current;
   const startTime = useRef(Date.now());
+  const particleAnimsRef = useRef<Animated.CompositeAnimation[]>([]);
 
   const scheduleTimeout = useCallback((fn: () => void, delayMs: number) => {
     const timeoutId = setTimeout(() => {
@@ -192,6 +193,8 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
       if (timerRef.current) clearInterval(timerRef.current);
       timeoutRefs.current.forEach((id) => clearTimeout(id));
       timeoutRefs.current = [];
+      particleAnimsRef.current.forEach((a) => a.stop());
+      particleAnimsRef.current = [];
     },
     []
   );
@@ -333,7 +336,7 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
     }));
     setParticles(newParticles);
     newParticles.forEach((p, i) => {
-      Animated.parallel([
+      const anim = Animated.parallel([
         Animated.timing(p.travel, {
           toValue: 1,
           duration: 750 + i * 70,
@@ -344,7 +347,11 @@ export const CurrentTaskScreen: React.FC<ChildScreenProps<'CurrentTask'>> = ({
           duration: 750 + i * 70,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]);
+      particleAnimsRef.current.push(anim);
+      anim.start(() => {
+        particleAnimsRef.current = particleAnimsRef.current.filter((a) => a !== anim);
+      });
     });
     scheduleTimeout(() => setParticles([]), 1100);
   }, [scheduleTimeout, isVisualSensitive]);

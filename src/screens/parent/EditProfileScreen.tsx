@@ -106,7 +106,21 @@ export const EditProfileScreen: React.FC<ParentScreenProps<'EditProfile'>> = ({ 
         { text: 'OK', onPress: () => navigation.goBack() },
       ]);
     } catch (err: any) {
-      setError(err.message || 'Erro ao salvar');
+      const msg: string = err?.message || 'Erro ao salvar';
+      const lower = msg.toLowerCase();
+      const isStorageError =
+        lower.includes('storage') ||
+        lower.includes('bucket') ||
+        lower.includes('upload') ||
+        lower.includes('row-level') ||
+        lower.includes('policy') ||
+        lower.includes('permissao');
+
+      setError(
+        isStorageError
+          ? `${msg}\n\nVerifique o bucket "parent-photos" e as policies de RLS no Supabase Storage.`
+          : msg
+      );
     } finally {
       setLoading(false);
     }
